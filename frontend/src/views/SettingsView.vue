@@ -2,7 +2,15 @@
 // Settings view: renders every config field from /api/settings, submits only
 // the keys the user actually changed, and shows a success/error toast.
 import { computed, onMounted, onUnmounted, ref } from "vue";
-import { getSettings, saveSettings } from "../api.js";
+import {
+  createApiToken,
+  deleteApiToken,
+  getApiTokens,
+  getSettings,
+  saveSettings,
+  updateApiToken,
+} from "../api.js";
+import { formatDate } from "../format.js";
 
 const fields = ref([]);
 const form = ref({});
@@ -240,7 +248,96 @@ async function save() {
   }
 }
 
-onMounted(load);
+// ---- API tokens ----
+const tokens = ref([]);
+const tokensLoading = ref(false);
+const tokensError = ref("");
+const newTokenName = ref("");
+const newTokenScope = ref("read");
+const creating = ref(false);
+const createdToken = ref(null); // {token, api_token} — plaintext shown once
+const copied = ref(false);
+
+async function loadTokens() {
+  tokensLoading.value = true;
+  tokensError.value = "";
+  try {
+    const data = await getApiTokens();
+    tokens.value = data.tokens || [];
+  } catch (e) {
+    tokensError.value = (e && e.message) || "Failed to load API tokens.";
+  } finally {
+    tokensLoading.value = false;
+  }
+}
+
+async function createToken() {
+  const name = newTokenName.value.trim();
+  if (!name) {
+    showToast("error", "Give the token a name first.");
+    return;
+  }
+  creating.value = true;
+  try {
+    createdToken.value = await createApiToken(name, newTokenScope.value);
+    copied.value = false;
+    newTokenName.value = "";
+    newTokenScope.value = "read";
+    await loadTokens();
+  } catch (e) {
+    showToast("error", (e && e.message) || "Failed to create the token.");
+  } finally {
+    creating.value = false;
+  }
+}
+
+async function copyToken() {
+  if (!createdToken.value) {
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(createdToken.value.token);
+    copied.value = true;
+  } catch {
+    copied.value = false;
+    showToast("error", "Copy failed — select the token and copy it manually.");
+  }
+}
+
+function dismissCreated() {
+  createdToken.value = null;
+}
+
+async function removeToken(t) {
+  if (!window.confirm(`Delete API token "${t.name}"? Any client using it will stop working.`)) {
+    return;
+  }
+  try {
+    await deleteApiToken(t.id);
+    if (createdToken.value && createdToken.value.api_token && createdToken.value.api_token.id === t.id) {
+      createdToken.value = null;
+    }
+    await loadTokens();
+  } catch (e) {
+    showToast("error", (e && e.message) || "Failed to delete the token.");
+  }
+}
+
+async function changeScope(t, scope) {
+  try {
+    await updateApiToken(t.id, { scope });
+    await loadTokens();
+    showToast("success", "Token scope updated.");
+  } catch (e) {
+    showToast("error", (e && e.message) || "Failed to update the token.");
+    await loadTokens();
+  }
+}
+
+onMounted(() => {
+  load();
+  loadTokens();
+});
 onUnmounted(() => {
   if (toastTimer !== null) {
     window.clearTimeout(toastTimer);
@@ -331,6 +428,96 @@ onUnmounted(() => {
         </span>
       </div>
     </form>
+
+    <section v-if="!loading" class="panel token-panel">
+      <h2>API access</h2>
+      <p class="field-hint">
+        Create tokens to query Scriber's REST API with the
+        <code>Authorization: Bearer &lt;token&gt;</code> header. Read-only tokens can fetch
+        meetings, participants and memories; read &amp; write can also edit them.
+        <a href="https://lp177.github.io/Scriber/api.html" target="_blank" rel="noopener noreferrer">
+          API documentation ↗
+        </a>
+      </p>
+
+      <div class="token-create">
+        <input
+          v-model="newTokenName"
+          type="text"
+          class="token-name-input"
+          placeholder="Token name (e.g. analytics script)"
+          aria-label="New token name"
+          @keyup.enter="createToken"
+        />
+        <select v-model="newTokenScope" class="token-select" aria-label="New token scope">
+          <option value="read">Read only</option>
+          <option value="readwrite">Read &amp; write</option>
+        </select>
+        <button type="button" class="btn primary" :disabled="creating" @click="createToken">
+          {{ creating ? "Creating…" : "Create token" }}
+        </button>
+      </div>
+
+      <div v-if="createdToken" class="token-reveal">
+        <p class="token-reveal-lead">
+          <strong>Copy your new token now</strong> — for security it is not stored and will never be
+          shown again.
+        </p>
+        <div class="token-reveal-row">
+          <input
+            class="token-value"
+            :value="createdToken.token"
+            readonly
+            aria-label="New API token"
+            @focus="$event.target.select()"
+          />
+          <button type="button" class="btn" @click="copyToken">{{ copied ? "Copied ✓" : "Copy" }}</button>
+          <button type="button" class="btn ghost" @click="dismissCreated">Done</button>
+        </div>
+      </div>
+
+      <p v-if="tokensError" class="alert" role="alert">{{ tokensError }}</p>
+
+      <div v-if="tokens.length" class="table-wrap tokens-table">
+        <table>
+          <thead>
+            <tr>
+              <th scope="col">Name</th>
+              <th scope="col">Token</th>
+              <th scope="col">Scope</th>
+              <th scope="col">Created</th>
+              <th scope="col">Last used</th>
+              <th scope="col"><span class="visually-hidden">Actions</span></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="t in tokens" :key="t.id">
+              <td class="token-cell-name">{{ t.name }}</td>
+              <td><code>{{ t.token_prefix }}…</code></td>
+              <td>
+                <select
+                  class="token-select token-select-inline"
+                  :value="t.scope"
+                  aria-label="Token scope"
+                  @change="changeScope(t, $event.target.value)"
+                >
+                  <option value="read">Read only</option>
+                  <option value="readwrite">Read &amp; write</option>
+                </select>
+              </td>
+              <td class="muted">{{ formatDate(t.created_at) }}</td>
+              <td class="muted">{{ t.last_used_at ? formatDate(t.last_used_at) : "never" }}</td>
+              <td>
+                <button type="button" class="btn ghost danger-btn token-del" @click="removeToken(t)">
+                  Delete
+                </button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p v-else-if="!tokensLoading" class="muted">No API tokens yet — create one above.</p>
+    </section>
 
     <div v-if="toast" class="toast" :class="toast.type" :role="toast.type === 'error' ? 'alert' : 'status'">
       {{ toast.text }}

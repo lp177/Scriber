@@ -605,6 +605,86 @@ input:disabled {
   margin-top: 24px;
 }
 
+/* ---------- API tokens ---------- */
+
+.token-panel .field-hint {
+  margin: 0 0 14px;
+  font-size: 13px;
+}
+
+.token-create {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+  margin-bottom: 14px;
+}
+
+.token-name-input {
+  flex: 1;
+  min-width: 220px;
+  width: auto;
+}
+
+.token-select {
+  padding: 9px 11px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+}
+
+.token-select-inline {
+  padding: 5px 8px;
+  font-size: 12.5px;
+}
+
+.token-reveal {
+  background: var(--surface);
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  padding: 12px 14px;
+  margin-bottom: 16px;
+}
+
+.token-reveal-lead {
+  margin: 0 0 10px;
+  font-size: 13.5px;
+}
+
+.token-reveal-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.token-value {
+  flex: 1;
+  min-width: 240px;
+  padding: 9px 11px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  font-family: ui-monospace, "Cascadia Mono", "SF Mono", Menlo, Consolas, monospace;
+  font-size: 13px;
+}
+
+.tokens-table table {
+  min-width: 640px;
+}
+
+.token-cell-name {
+  font-weight: 600;
+  white-space: normal;
+}
+
+.token-del {
+  padding: 5px 12px;
+}
+
 /* ---------- Dialog viewer ---------- */
 
 dialog.viewer {

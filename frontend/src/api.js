@@ -215,3 +215,34 @@ export async function saveSummary(id, content) {
     })
   ).json();
 }
+
+/** GET /api/tokens — list API tokens (metadata only). */
+export async function getApiTokens() {
+  return (await request("/api/tokens")).json();
+}
+
+/** POST /api/tokens — mint a token; returns {token, api_token}. The plaintext
+ *  `token` is returned only once. */
+export async function createApiToken(name, scope) {
+  return (
+    await request("/api/tokens", {
+      method: "POST",
+      body: JSON.stringify({ name, scope }),
+    })
+  ).json();
+}
+
+/** PATCH /api/tokens/{id} — rename and/or change a token's scope. */
+export async function updateApiToken(id, changes) {
+  return (
+    await request(`/api/tokens/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      body: JSON.stringify(changes),
+    })
+  ).json();
+}
+
+/** DELETE /api/tokens/{id} — revoke a token. */
+export async function deleteApiToken(id) {
+  return (await request(`/api/tokens/${encodeURIComponent(id)}`, { method: "DELETE" })).json();
+}

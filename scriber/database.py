@@ -83,6 +83,19 @@ CREATE TABLE IF NOT EXISTS meeting_participants (
 )
 """
 
+_API_TOKENS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS api_tokens (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    token_prefix TEXT NOT NULL,
+    token_hash TEXT NOT NULL UNIQUE,
+    scope TEXT NOT NULL DEFAULT 'read',
+    created_at TEXT NOT NULL,
+    last_used_at TEXT,
+    last_used_ip TEXT
+)
+"""
+
 # Columns of the ``users`` table that ``update_user`` is permitted to modify.
 _USER_UPDATABLE: tuple[str, ...] = ("display_name", "description", "avatar_path")
 
@@ -111,6 +124,7 @@ def init(db_path: pathlib.Path) -> None:
         _conn.execute(_SCHEMA)
         _conn.execute(_USERS_SCHEMA)
         _conn.execute(_PARTICIPANTS_SCHEMA)
+        _conn.execute(_API_TOKENS_SCHEMA)
         _migrate(_conn)
         _conn.commit()
 
@@ -465,3 +479,100 @@ def delete_user(user_id: str) -> None:
         )
         conn.execute("DELETE FROM users WHERE id = ?", (user_id,))
         conn.commit()
+
+
+# ---------------------------------------------------------------------------
+# API tokens (for the read/write REST API, distinct from dashboard sessions)
+# ---------------------------------------------------------------------------
+
+# Columns returned to the dashboard — never includes ``token_hash``.
+_API_TOKEN_PUBLIC = (
+    "id, name, token_prefix, scope, created_at, last_used_at, last_used_ip"
+)
+
+
+def create_api_token(
+    token_id: str, name: str, token_prefix: str, token_hash: str, scope: str
+) -> dict:
+    """Insert a new API token row and return its public representation."""
+    now = _utcnow()
+    with _lock:
+        conn = _require_conn()
+        conn.execute(
+            "INSERT INTO api_tokens "
+            "(id, name, token_prefix, token_hash, scope, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (token_id, name, token_prefix, token_hash, scope, now),
+        )
+        conn.commit()
+        row = conn.execute(
+            f"SELECT {_API_TOKEN_PUBLIC} FROM api_tokens WHERE id = ?", (token_id,)
+        ).fetchone()
+    return dict(row)
+
+
+def list_api_tokens() -> list[dict]:
+    """Return all API tokens (without the hash), newest first."""
+    with _lock:
+        conn = _require_conn()
+        rows = conn.execute(
+            f"SELECT {_API_TOKEN_PUBLIC} FROM api_tokens ORDER BY created_at DESC, id DESC"
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def get_api_token_by_hash(token_hash: str) -> dict | None:
+    """Return the token row matching a SHA-256 hash, or None (used for auth)."""
+    with _lock:
+        conn = _require_conn()
+        row = conn.execute(
+            f"SELECT {_API_TOKEN_PUBLIC} FROM api_tokens WHERE token_hash = ?",
+            (token_hash,),
+        ).fetchone()
+    return dict(row) if row is not None else None
+
+
+def touch_api_token(token_id: str, ip: str | None) -> None:
+    """Record the last-used timestamp (and client IP) for a token."""
+    with _lock:
+        conn = _require_conn()
+        conn.execute(
+            "UPDATE api_tokens SET last_used_at = ?, last_used_ip = ? WHERE id = ?",
+            (_utcnow(), ip, token_id),
+        )
+        conn.commit()
+
+
+def update_api_token(
+    token_id: str, *, name: str | None = None, scope: str | None = None
+) -> dict | None:
+    """Rename a token and/or change its scope; return the updated public row."""
+    assignments: list[str] = []
+    values: list[str] = []
+    if name is not None:
+        assignments.append("name = ?")
+        values.append(name)
+    if scope is not None:
+        assignments.append("scope = ?")
+        values.append(scope)
+    with _lock:
+        conn = _require_conn()
+        if assignments:
+            conn.execute(
+                f"UPDATE api_tokens SET {', '.join(assignments)} WHERE id = ?",
+                (*values, token_id),
+            )
+            conn.commit()
+        row = conn.execute(
+            f"SELECT {_API_TOKEN_PUBLIC} FROM api_tokens WHERE id = ?", (token_id,)
+        ).fetchone()
+    return dict(row) if row is not None else None
+
+
+def delete_api_token(token_id: str) -> bool:
+    """Delete a token by id; return True if a row was removed."""
+    with _lock:
+        conn = _require_conn()
+        cur = conn.execute("DELETE FROM api_tokens WHERE id = ?", (token_id,))
+        conn.commit()
+        return cur.rowcount > 0

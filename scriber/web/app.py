@@ -8,7 +8,7 @@ from typing import Any
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
-from scriber.web import routes
+from scriber.web import api_v1, routes
 
 # Repository root: scriber/web/app.py -> web -> scriber package -> repo.
 _REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -20,6 +20,8 @@ def create_app(bot: Any | None = None) -> FastAPI:
     app = FastAPI(title="Scriber", docs_url=None, redoc_url=None)
     app.state.bot = bot
     app.include_router(routes.router, prefix="/api")
+    # Public token-authenticated data API (Authorization: Bearer <api-token>).
+    app.include_router(api_v1.router, prefix="/api/v1")
     # Serve the built SPA only when it exists so a dev checkout without a
     # frontend build still exposes the API.
     if _FRONTEND_DIST.is_dir():

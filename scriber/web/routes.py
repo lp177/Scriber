@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hmac
 import logging
+import secrets
 from pathlib import Path
 from typing import Any
 
@@ -13,6 +14,7 @@ from pydantic import BaseModel
 
 from scriber import config, database
 from scriber.memory import MemoryManager
+from scriber.web import api_auth
 from scriber.web.auth import create_token, require_auth
 
 logger = logging.getLogger(__name__)
@@ -38,6 +40,20 @@ class ContentBody(BaseModel):
     """Request body carrying a single ``content`` text field."""
 
     content: str
+
+
+class TokenCreate(BaseModel):
+    """Request to mint a new API token."""
+
+    name: str
+    scope: str = "read"
+
+
+class TokenUpdate(BaseModel):
+    """Rename an API token and/or change its scope."""
+
+    name: str | None = None
+    scope: str | None = None
 
 
 # Maximum accepted avatar upload size (5 MB).
@@ -527,3 +543,67 @@ async def put_settings(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"ok": True, "fields": manager.display_fields()}
+
+
+# ---------------------------------------------------------------------------
+# API token management (dashboard-authenticated; the tokens themselves auth
+# the separate /api/v1 data API — see scriber.web.api_auth / api_v1).
+# ---------------------------------------------------------------------------
+
+
+@router.get("/tokens")
+async def list_tokens(_user: str = Depends(require_auth)) -> dict[str, Any]:
+    """List all API tokens (metadata only — the secret is never returned)."""
+    return {"tokens": database.list_api_tokens()}
+
+
+@router.post("/tokens")
+async def create_api_token(
+    body: TokenCreate, _user: str = Depends(require_auth)
+) -> dict[str, Any]:
+    """Mint a new API token and return the plaintext secret exactly once."""
+    name = body.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Token name is required")
+    try:
+        scope = api_auth.normalize_scope(body.scope)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    token = api_auth.generate_token()
+    row = database.create_api_token(
+        secrets.token_hex(8),
+        name,
+        api_auth.token_prefix(token),
+        api_auth.hash_token(token),
+        scope,
+    )
+    # The plaintext token is shown once here and never stored — only its hash is.
+    return {"token": token, "api_token": row}
+
+
+@router.patch("/tokens/{token_id}")
+async def update_api_token(
+    token_id: str, body: TokenUpdate, _user: str = Depends(require_auth)
+) -> dict[str, Any]:
+    """Rename an API token and/or change its scope."""
+    name = body.name.strip() if body.name is not None else None
+    if name is not None and not name:
+        raise HTTPException(status_code=400, detail="Token name cannot be empty")
+    scope: str | None = None
+    if body.scope is not None:
+        try:
+            scope = api_auth.normalize_scope(body.scope)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+    row = database.update_api_token(token_id, name=name, scope=scope)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Token not found")
+    return {"ok": True, "api_token": row}
+
+
+@router.delete("/tokens/{token_id}")
+async def delete_api_token(token_id: str, _user: str = Depends(require_auth)) -> dict[str, bool]:
+    """Revoke (delete) an API token."""
+    if not database.delete_api_token(token_id):
+        raise HTTPException(status_code=404, detail="Token not found")
+    return {"ok": True}
