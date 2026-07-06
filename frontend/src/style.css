@@ -1,35 +1,47 @@
-/* Scriber admin dashboard — dark theme design tokens and base styles. */
+/* Scriber admin dashboard — Material Design dark theme.
+   Dark surfaces with paper elevation, a click ripple (see ripple.js), and
+   Material filled text fields with an animated focus underline. */
 
 :root {
   color-scheme: dark;
 
-  /* Surfaces */
-  --bg: #0f1420;
-  --surface: #161d2e;
-  --surface-2: #1d2639;
-  --border: #29334d;
+  /* Surfaces — dark base with progressively lighter elevated surfaces. */
+  --bg: #121317;
+  --surface: #1b1d24; /* elevation ~1dp (cards, panels, bars) */
+  --surface-2: #23262f; /* elevation ~2dp (inputs, hover, chips) */
+  --surface-3: #2b2f3a; /* elevation ~3dp (raised hover) */
+  --border: #343843; /* hairline divider */
 
   /* Ink */
-  --text: #e4e9f4;
-  --text-muted: #93a0ba;
+  --text: #e7e8ec; /* high-emphasis */
+  --text-muted: #a1a6b0; /* medium-emphasis */
 
-  /* Accent (interactive) + chart mark color (validated vs --surface) */
-  --accent: #2dd4bf;
-  --accent-contrast: #052722;
-  --bar: #0fa596;
+  /* Primary (teal) — interactive accent + chart mark. */
+  --primary: #2dd4bf;
+  --accent: #2dd4bf; /* legacy alias */
+  --accent-contrast: #04231f; /* ink on primary */
+  --bar: #2dd4bf;
 
-  /* Status colors — always paired with the status text, never color alone */
-  --red: #f87171;
-  --red-bg: rgba(248, 113, 113, 0.14);
+  /* Status colors — always paired with text, never color alone. */
+  --red: #ff6b6b;
+  --red-bg: rgba(255, 107, 107, 0.15);
   --amber: #fbbf24;
-  --amber-bg: rgba(251, 191, 36, 0.14);
+  --amber-bg: rgba(251, 191, 36, 0.15);
   --green: #34d399;
-  --green-bg: rgba(52, 211, 153, 0.14);
+  --green-bg: rgba(52, 211, 153, 0.15);
   --gray: #9ca3af;
   --gray-bg: rgba(156, 163, 175, 0.16);
 
-  --radius: 10px;
-  --shadow: 0 12px 32px rgba(0, 0, 0, 0.4);
+  --radius: 12px;
+  --radius-sm: 8px;
+
+  /* Material elevation shadows (umbra + penumbra + ambient). */
+  --elev-1: 0 1px 2px rgba(0, 0, 0, 0.5), 0 1px 3px 1px rgba(0, 0, 0, 0.28);
+  --elev-2: 0 1px 2px rgba(0, 0, 0, 0.5), 0 2px 6px 2px rgba(0, 0, 0, 0.28);
+  --elev-3: 0 1px 3px rgba(0, 0, 0, 0.5), 0 4px 8px 3px rgba(0, 0, 0, 0.28);
+  --elev-4: 0 2px 3px rgba(0, 0, 0, 0.5), 0 6px 10px 4px rgba(0, 0, 0, 0.28);
+  --elev-6: 0 4px 6px rgba(0, 0, 0, 0.5), 0 8px 20px 6px rgba(0, 0, 0, 0.32);
+  --shadow: var(--elev-6);
 }
 
 *,
@@ -47,9 +59,11 @@ body {
 body {
   background: var(--bg);
   color: var(--text);
-  font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  font-family: "Roboto", system-ui, -apple-system, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
   font-size: 15px;
   line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
 }
 
 h1,
@@ -57,22 +71,26 @@ h2,
 h3 {
   margin: 0 0 0.5em;
   line-height: 1.25;
+  letter-spacing: 0.005em;
 }
 
 h1 {
   font-size: 24px;
+  font-weight: 500;
 }
 
 h2 {
   font-size: 17px;
+  font-weight: 500;
 }
 
 h3 {
   font-size: 15px;
+  font-weight: 500;
 }
 
 a {
-  color: var(--accent);
+  color: var(--primary);
 }
 
 code {
@@ -83,14 +101,49 @@ code {
   padding: 1px 5px;
 }
 
-/* Visible focus for keyboard users on every interactive element. */
+/* Visible focus for keyboard users on non-field interactive elements. */
 :focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--primary);
   outline-offset: 2px;
 }
 
 .muted {
   color: var(--text-muted);
+}
+
+/* Subtle Material scrollbars. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--surface-3) transparent;
+}
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--surface-3);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+/* ---------- Ripple ink (positioned by ripple.js) ---------- */
+
+.ripple-ink {
+  position: absolute;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.22;
+  transform: scale(0);
+  pointer-events: none;
+  animation: ripple-expand 0.55s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+@keyframes ripple-expand {
+  to {
+    transform: scale(1);
+    opacity: 0;
+  }
 }
 
 /* ---------- Layout ---------- */
@@ -102,23 +155,27 @@ code {
   gap: 16px;
   padding: 10px 20px;
   background: var(--surface);
-  border-bottom: 1px solid var(--border);
+  box-shadow: var(--elev-2);
   position: sticky;
   top: 0;
   z-index: 10;
 }
 
 .brand {
+  position: relative;
+  overflow: hidden;
   display: inline-flex;
   align-items: center;
   gap: 9px;
   color: var(--text);
   text-decoration: none;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
+  padding: 4px 8px;
+  margin: -4px -8px;
 }
 
 .brand svg {
-  color: var(--accent);
+  color: var(--primary);
 }
 
 .wordmark {
@@ -154,10 +211,10 @@ code {
 
 .panel {
   background: var(--surface);
-  border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 18px;
   margin-top: 20px;
+  box-shadow: var(--elev-1);
 }
 
 .panel > h2 {
@@ -167,31 +224,39 @@ code {
 /* ---------- Buttons ---------- */
 
 .btn {
+  position: relative;
+  overflow: hidden;
   display: inline-flex;
   align-items: center;
-  gap: 7px;
-  padding: 8px 16px;
-  border-radius: 8px;
+  justify-content: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 8px 20px;
+  border-radius: var(--radius-sm);
   border: 1px solid transparent;
   background: var(--surface-2);
   color: var(--text);
   font: inherit;
   font-weight: 600;
+  letter-spacing: 0.02em;
   cursor: pointer;
+  transition: background-color 0.2s ease, box-shadow 0.2s ease, filter 0.2s ease;
 }
 
 .btn:hover {
-  background: var(--border);
+  background: var(--surface-3);
 }
 
 .btn.primary {
-  background: var(--accent);
-  border-color: var(--accent);
+  background: var(--primary);
+  border-color: transparent;
   color: var(--accent-contrast);
+  box-shadow: var(--elev-2);
 }
 
 .btn.primary:hover {
-  filter: brightness(1.08);
+  filter: brightness(1.06);
+  box-shadow: var(--elev-4);
 }
 
 .btn.ghost {
@@ -206,6 +271,8 @@ code {
 .btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+  box-shadow: none;
+  filter: none;
 }
 
 .btn-block {
@@ -214,17 +281,20 @@ code {
 }
 
 .icon-btn {
+  position: relative;
+  overflow: hidden;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
+  width: 40px;
+  height: 40px;
   padding: 0;
   border: none;
-  border-radius: 8px;
+  border-radius: 50%;
   background: transparent;
   color: var(--text-muted);
   cursor: pointer;
+  transition: background-color 0.2s ease, color 0.2s ease;
 }
 
 .icon-btn:hover:not(:disabled) {
@@ -248,7 +318,7 @@ code {
   background: var(--red-bg);
   border: 1px solid var(--red);
   color: var(--red);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   padding: 10px 14px;
   margin: 0 0 14px;
 }
@@ -293,20 +363,17 @@ code {
   bottom: 20px;
   z-index: 50;
   padding: 12px 18px;
-  border-radius: 10px;
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  box-shadow: var(--shadow);
+  border-radius: var(--radius-sm);
+  background: var(--surface-3);
+  box-shadow: var(--elev-6);
   max-width: min(420px, calc(100vw - 40px));
 }
 
 .toast.success {
-  border-color: var(--green);
   color: var(--green);
 }
 
 .toast.error {
-  border-color: var(--red);
   color: var(--red);
 }
 
@@ -320,9 +387,15 @@ code {
 
 .stat-card {
   background: var(--surface);
-  border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 14px 16px;
+  box-shadow: var(--elev-1);
+  transition: box-shadow 0.2s ease, transform 0.2s ease;
+}
+
+.stat-card:hover {
+  box-shadow: var(--elev-3);
+  transform: translateY(-2px);
 }
 
 .stat-value {
@@ -369,7 +442,7 @@ code {
   display: block;
   height: 12px;
   background: var(--bar);
-  border-radius: 0 4px 4px 0; /* rounded data end, flat baseline end */
+  border-radius: 0 6px 6px 0;
   min-width: 2px;
 }
 
@@ -381,8 +454,8 @@ code {
 
 .table-wrap {
   overflow-x: auto;
-  border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
 }
 
 table {
@@ -398,13 +471,13 @@ th {
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--text-muted);
-  padding: 9px 12px;
+  padding: 11px 12px;
   border-bottom: 1px solid var(--border);
   white-space: nowrap;
 }
 
 td {
-  padding: 9px 12px;
+  padding: 11px 12px;
   border-bottom: 1px solid var(--border);
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
@@ -414,8 +487,12 @@ tbody tr:last-child td {
   border-bottom: none;
 }
 
+tbody tr {
+  transition: background-color 0.15s ease;
+}
+
 tbody tr:hover {
-  background: var(--surface-2);
+  background: var(--surface-3);
 }
 
 .actions-wrap {
@@ -430,7 +507,7 @@ tbody tr:hover {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 2px 10px;
+  padding: 3px 11px;
   border-radius: 999px;
   font-size: 12px;
   font-weight: 600;
@@ -477,34 +554,91 @@ tbody tr:hover {
   font-size: 13.5px;
 }
 
-/* ---------- Forms ---------- */
+/* ---------- Forms — Material filled fields ---------- */
 
 label {
   display: block;
   font-weight: 600;
-  font-size: 13.5px;
-  margin-bottom: 5px;
-}
-
-input[type="text"],
-input[type="password"] {
-  width: 100%;
-  padding: 9px 11px;
-  border-radius: 8px;
-  border: 1px solid var(--border);
-  background: var(--bg);
-  color: var(--text);
-  font: inherit;
-}
-
-input::placeholder {
+  font-size: 13px;
+  margin-bottom: 6px;
   color: var(--text-muted);
-  opacity: 0.75;
+  letter-spacing: 0.01em;
 }
 
-input:disabled {
+/* Filled field with a bottom underline that animates from the click point.
+   ripple.js sets --ripple-x on pointer-down so the underline grows from there. */
+input[type="text"],
+input[type="password"],
+.field-textarea,
+.token-value,
+select,
+.token-select {
+  width: 100%;
+  font: inherit;
+  font-size: 1rem; /* 16px — avoids iOS focus zoom */
+  color: var(--text);
+  background-color: var(--surface-2);
+  background-image: linear-gradient(var(--primary), var(--primary));
+  background-repeat: no-repeat;
+  background-position: var(--ripple-x, 50%) 100%;
+  background-size: 0 2px;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+  padding: 12px 14px;
+  min-height: 48px;
+  transition: background-size 0.25s ease, background-color 0.2s ease;
+}
+
+input[type="text"]:hover,
+input[type="password"]:hover,
+.field-textarea:hover,
+select:hover,
+.token-select:hover {
+  background-color: var(--surface-3);
+  border-bottom-color: var(--text-muted);
+}
+
+input[type="text"]:focus,
+input[type="password"]:focus,
+.field-textarea:focus,
+.token-value:focus,
+select:focus,
+.token-select:focus {
+  outline: none;
+  background-color: var(--surface-3);
+  background-size: 100% 2px;
+  border-bottom-color: transparent;
+}
+
+input::placeholder,
+.field-textarea::placeholder {
+  color: var(--text-muted);
+  opacity: 0.8;
+}
+
+input:disabled,
+select:disabled,
+.field-textarea:disabled {
   opacity: 0.55;
   cursor: not-allowed;
+}
+
+/* Native selects: hide the default arrow and draw a Material chevron. */
+select,
+.token-select {
+  appearance: none;
+  padding-right: 36px;
+  cursor: pointer;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23a1a6b0' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E"), linear-gradient(var(--primary), var(--primary));
+  background-repeat: no-repeat, no-repeat;
+  background-position: right 12px center, var(--ripple-x, 50%) 100%;
+  background-size: 16px, 0 2px;
+}
+
+select:focus,
+.token-select:focus {
+  background-size: 16px, 100% 2px;
 }
 
 .field {
@@ -515,7 +649,7 @@ input:disabled {
   color: var(--red);
   background: var(--red-bg);
   border: 1px solid var(--red);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   padding: 9px 12px;
   margin: 0 0 14px;
   font-size: 14px;
@@ -532,10 +666,9 @@ input:disabled {
 .login-card {
   width: min(400px, 100%);
   background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 14px;
+  border-radius: 16px;
   padding: 28px;
-  box-shadow: var(--shadow);
+  box-shadow: var(--elev-6);
 }
 
 .login-card h1 {
@@ -580,13 +713,13 @@ input:disabled {
 
 .provider-note {
   background: var(--surface);
-  border: 1px solid var(--border);
-  border-left: 3px solid var(--accent);
-  border-radius: 8px;
+  border-left: 3px solid var(--primary);
+  border-radius: var(--radius-sm);
   padding: 12px 16px;
   margin: 0 0 20px;
   font-size: 13px;
   color: var(--text-muted);
+  box-shadow: var(--elev-1);
 }
 
 .provider-note ul {
@@ -627,25 +760,24 @@ input:disabled {
 }
 
 .token-select {
-  padding: 9px 11px;
-  border-radius: 8px;
-  border: 1px solid var(--border);
-  background: var(--bg);
-  color: var(--text);
-  font: inherit;
+  width: auto;
+  min-width: 150px;
 }
 
 .token-select-inline {
-  padding: 5px 8px;
-  font-size: 12.5px;
+  min-width: 130px;
+  min-height: 38px;
+  padding: 6px 34px 6px 10px;
+  font-size: 13px;
 }
 
 .token-reveal {
-  background: var(--surface);
-  border: 1px solid var(--accent);
-  border-radius: 8px;
+  background: var(--surface-2);
+  border-left: 3px solid var(--primary);
+  border-radius: var(--radius-sm);
   padding: 12px 14px;
   margin-bottom: 16px;
+  box-shadow: var(--elev-1);
 }
 
 .token-reveal-lead {
@@ -663,11 +795,6 @@ input:disabled {
 .token-value {
   flex: 1;
   min-width: 240px;
-  padding: 9px 11px;
-  border-radius: 8px;
-  border: 1px solid var(--border);
-  background: var(--bg);
-  color: var(--text);
   font-family: ui-monospace, "Cascadia Mono", "SF Mono", Menlo, Consolas, monospace;
   font-size: 13px;
 }
@@ -682,7 +809,8 @@ input:disabled {
 }
 
 .token-del {
-  padding: 5px 12px;
+  min-height: 34px;
+  padding: 5px 14px;
 }
 
 /* ---------- Dialog viewer ---------- */
@@ -690,12 +818,12 @@ input:disabled {
 dialog.viewer {
   background: var(--surface);
   color: var(--text);
-  border: 1px solid var(--border);
-  border-radius: 14px;
+  border: none;
+  border-radius: 16px;
   padding: 0;
   width: min(860px, calc(100vw - 32px));
   max-height: min(85vh, calc(100vh - 32px));
-  box-shadow: var(--shadow);
+  box-shadow: var(--elev-6);
 }
 
 dialog.viewer[open] {
@@ -704,7 +832,7 @@ dialog.viewer[open] {
 }
 
 dialog.viewer::backdrop {
-  background: rgba(5, 9, 18, 0.65);
+  background: rgba(5, 7, 12, 0.7);
   backdrop-filter: blur(2px);
 }
 
@@ -776,7 +904,7 @@ dialog.viewer::backdrop {
   padding: 12px 14px;
   background: var(--bg);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   font-size: 13px;
@@ -820,12 +948,17 @@ dialog.viewer::backdrop {
 }
 
 .nav-link {
+  position: relative;
+  overflow: hidden;
+  display: inline-flex;
+  align-items: center;
   color: var(--text-muted);
   text-decoration: none;
   font-weight: 600;
   font-size: 14px;
-  padding: 6px 11px;
-  border-radius: 8px;
+  padding: 8px 13px;
+  border-radius: var(--radius-sm);
+  transition: background-color 0.2s ease, color 0.2s ease;
 }
 
 .nav-link:hover {
@@ -834,8 +967,8 @@ dialog.viewer::backdrop {
 }
 
 .nav-link.router-link-exact-active {
-  color: var(--text);
-  background: var(--surface-2);
+  color: var(--primary);
+  background: rgba(45, 212, 191, 0.12);
 }
 
 /* ---------- Back navigation ---------- */
@@ -866,7 +999,7 @@ tr.clickable {
 }
 
 .row-link:hover {
-  color: var(--accent);
+  color: var(--primary);
   text-decoration: underline;
 }
 
@@ -933,7 +1066,7 @@ tr.clickable {
   border-radius: 50%;
   object-fit: cover;
   background: var(--surface-2);
-  border: 1px solid var(--border);
+  box-shadow: var(--elev-2);
 }
 
 .avatar-placeholder {
@@ -993,13 +1126,6 @@ tr.clickable {
 /* ---------- Editable fields, editors & previews ---------- */
 
 .field-textarea {
-  width: 100%;
-  padding: 10px 12px;
-  border-radius: 8px;
-  border: 1px solid var(--border);
-  background: var(--bg);
-  color: var(--text);
-  font: inherit;
   line-height: 1.55;
   resize: vertical;
 }
@@ -1041,7 +1167,7 @@ tr.clickable {
   padding: 12px 14px;
   background: var(--bg);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   min-height: 120px;
   overflow: auto;
 }
@@ -1108,7 +1234,7 @@ tr.clickable {
 }
 
 .markdown-body a {
-  color: var(--accent);
+  color: var(--primary);
 }
 
 .markdown-body pre {
@@ -1116,7 +1242,7 @@ tr.clickable {
   padding: 10px 12px;
   background: var(--surface-2);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   overflow-x: auto;
   white-space: pre;
   font-size: 13px;
@@ -1138,20 +1264,24 @@ tr.clickable {
 }
 
 .session-item {
+  position: relative;
+  overflow: hidden;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 10px 13px;
+  padding: 12px 14px;
   background: var(--surface-2);
-  border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   color: var(--text);
   text-decoration: none;
+  box-shadow: var(--elev-1);
+  transition: box-shadow 0.2s ease, transform 0.2s ease;
 }
 
 .session-item:hover {
-  border-color: var(--accent);
+  box-shadow: var(--elev-3);
+  transform: translateY(-1px);
 }
 
 .session-meta {
@@ -1172,18 +1302,18 @@ tr.clickable {
 /* ---------- Danger zone ---------- */
 
 .danger-zone {
-  border-color: var(--red);
+  box-shadow: var(--elev-1), inset 0 0 0 1px var(--red);
 }
 
 .danger-btn {
   background: var(--red-bg);
-  border-color: var(--red);
+  border-color: transparent;
   color: var(--red);
 }
 
 .danger-btn:hover {
   background: var(--red);
-  color: var(--bg);
+  color: #1a0606;
 }
 
 /* ---------- Meeting detail ---------- */
@@ -1199,7 +1329,7 @@ tr.clickable {
   padding: 12px 14px;
   background: var(--bg);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   overflow-x: auto;
@@ -1213,5 +1343,20 @@ tr.clickable {
 @media (max-width: 720px) {
   .editor-split {
     grid-template-columns: 1fr;
+  }
+}
+
+/* ---------- Reduced motion ---------- */
+
+@media (prefers-reduced-motion: reduce) {
+  .ripple-ink {
+    display: none;
+    animation: none;
+  }
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
   }
 }
