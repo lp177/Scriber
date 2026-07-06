@@ -25,7 +25,8 @@ const transcriptDraft = ref("");
 const summaryDraft = ref("");
 const savingTranscript = ref(false);
 const savingSummary = ref(false);
-const showSummaryPreview = ref(false);
+// Summary pane starts in rendered-Markdown mode; the toggle switches to raw editing.
+const showSummaryPreview = ref(true);
 
 const toast = ref(null);
 let toastTimer = null;

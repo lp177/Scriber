@@ -1,6 +1,6 @@
 <script setup>
 // Per-participant detail view: editable avatar, display name, description, a
-// Markdown memory editor with live preview, and the list of meetings joined.
+// Markdown memory editor with an Edit/Preview toggle, and the meetings joined.
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import {
@@ -36,6 +36,8 @@ const descDraft = ref("");
 const savingDesc = ref(false);
 const memoryDraft = ref("");
 const savingMemory = ref(false);
+// Memory pane starts in rendered-Markdown mode; the toggle switches to raw editing.
+const showMemoryPreview = ref(true);
 
 // Transient status toast.
 const toast = ref(null);
@@ -312,27 +314,28 @@ onUnmounted(() => {
       </section>
 
       <section class="panel">
-        <h2>Memory</h2>
+        <div class="panel-head">
+          <h2>Memory</h2>
+          <div class="panel-head-actions">
+            <button type="button" class="btn ghost" @click="showMemoryPreview = !showMemoryPreview">
+              {{ showMemoryPreview ? "Edit" : "Preview" }}
+            </button>
+          </div>
+        </div>
         <p class="field-hint">
           This Markdown file is refreshed by the AI after each meeting and is prepended as context
           when generating summaries. Edit it to fix typos or misheard names of people and projects.
         </p>
-        <div class="editor-split">
-          <div class="editor-pane">
-            <label for="memory-editor">Editor (Markdown)</label>
-            <textarea
-              id="memory-editor"
-              v-model="memoryDraft"
-              class="field-textarea code-editor"
-              rows="16"
-            ></textarea>
-          </div>
-          <div class="editor-pane">
-            <span class="pane-label">Preview</span>
-            <div class="preview-pane markdown-body" v-html="memoryPreview"></div>
-            <p v-if="!memoryDraft" class="muted preview-empty">No memory recorded yet.</p>
-          </div>
-        </div>
+        <div v-if="showMemoryPreview" class="preview-pane markdown-body" v-html="memoryPreview"></div>
+        <p v-if="showMemoryPreview && !memoryDraft" class="muted preview-empty">No memory recorded yet.</p>
+        <textarea
+          v-else-if="!showMemoryPreview"
+          id="memory-editor"
+          v-model="memoryDraft"
+          class="field-textarea code-editor"
+          rows="16"
+          aria-label="Memory (Markdown)"
+        ></textarea>
         <div class="editor-actions">
           <button type="button" class="btn primary" :disabled="savingMemory" @click="saveMemory">
             {{ savingMemory ? "Saving…" : "Save memory" }}
