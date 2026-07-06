@@ -1,0 +1,333 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Setup guide — Scriber Discord bot</title>
+  <meta name="description" content="Step-by-step: create the Discord application, configure the bot, find your IDs, invite it, grant access to a private voice channel, and configure & run Scriber." />
+  <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="site-header">
+    <div class="container">
+      <a class="brand" href="./" aria-label="Scriber home">
+        <svg viewBox="0 0 512 512" aria-hidden="true">
+          <defs>
+            <linearGradient id="bt-s" x1="0" y1="0" x2="512" y2="512" gradientUnits="userSpaceOnUse">
+              <stop offset="0" stop-color="#3ee0cc" /><stop offset="1" stop-color="#12a99a" />
+            </linearGradient>
+          </defs>
+          <rect width="512" height="512" rx="116" fill="url(#bt-s)" />
+          <g fill="#04211e">
+            <rect x="166" y="150" width="36" height="92" rx="18" />
+            <rect x="238" y="121" width="36" height="150" rx="18" />
+            <rect x="310" y="150" width="36" height="92" rx="18" />
+            <rect x="166" y="306" width="180" height="32" rx="16" />
+            <rect x="166" y="360" width="120" height="32" rx="16" />
+          </g>
+        </svg>
+        Scriber
+      </a>
+      <nav class="nav">
+        <a href="./#features" class="hide-sm">Features</a>
+        <a href="./#screens" class="hide-sm">Screens</a>
+        <a href="setup.html">Setup guide</a>
+        <a href="https://github.com/lp177/Scriber" class="nav-cta">GitHub ↗</a>
+      </nav>
+    </div>
+  </header>
+
+  <div class="doc">
+    <div class="container">
+      <div class="doc-layout">
+        <!-- TOC -->
+        <aside class="toc">
+          <h4>On this page</h4>
+          <ol>
+            <li><a href="#prereqs">Before you start</a></li>
+            <li><a href="#create">Create the application</a></li>
+            <li><a href="#bot">Configure the bot</a></li>
+            <li><a href="#ids">Find your IDs</a></li>
+            <li><a href="#invite">Invite the bot</a></li>
+            <li><a href="#private">Private voice channel access</a></li>
+            <li><a href="#configure">Configure Scriber</a></li>
+            <li><a href="#run">Run it</a></li>
+            <li><a href="#record">Your first recording</a></li>
+            <li><a href="#trouble">Troubleshooting</a></li>
+          </ol>
+        </aside>
+
+        <!-- MAIN -->
+        <main class="doc-main">
+          <h1>Scriber setup guide</h1>
+          <p class="doc-lead">
+            Everything to take Scriber from zero to recording: create the Discord app, get its token
+            and IDs, invite it with the right permissions, admit it to a private voice channel, then
+            configure and run the container.
+          </p>
+          <p class="doc-lead" style="font-size:15px;">
+            Roughly 10–15 minutes. You'll need a Discord account and a server where you have the
+            <strong>Manage&nbsp;Server</strong> permission.
+          </p>
+
+          <!-- 0 -->
+          <h2 id="prereqs">Before you start</h2>
+          <p>You will need:</p>
+          <ul>
+            <li><strong>Docker or Podman</strong> (recommended), or Python 3.12+ with the <code>libopus</code> system library — <code>libopus</code> is required for Discord voice, config alone won't make voice work.</li>
+            <li>A <strong>Discord server</strong> you manage (you need <em>Manage Server</em> to add a bot).</li>
+            <li>An API key for <strong>Anthropic</strong> or <strong>OpenAI</strong> — <em>or</em> a self-hosted OpenAI-compatible server (Ollama, vLLM, LM Studio, LocalAI) if you want summaries to never leave your machine.</li>
+          </ul>
+          <div class="callout">
+            <strong>What Scriber needs from Discord, in one line:</strong> a bot token, and the bot invited
+            with the <code>bot</code> + <code>applications.commands</code> scopes and four permissions —
+            <em>View&nbsp;Channels, Send&nbsp;Messages, Attach&nbsp;Files, Connect</em>.
+          </div>
+
+          <!-- 1 -->
+          <h2 id="create">1 · Create the Discord application</h2>
+          <div class="step-block">
+            <div class="n">1</div>
+            <div class="b">
+              <h3>Open the Developer Portal</h3>
+              <p>Go to <a href="https://discord.com/developers/applications">discord.com/developers/applications</a> and sign in.</p>
+            </div>
+          </div>
+          <div class="step-block">
+            <div class="n">2</div>
+            <div class="b">
+              <h3>New Application</h3>
+              <p>Click <strong>New Application</strong>, give it a name (e.g. <code>Scriber</code>), accept the Terms, and click <strong>Create</strong>. This creates the application that your bot lives inside.</p>
+            </div>
+          </div>
+
+          <!-- 2 -->
+          <h2 id="bot">2 · Configure the bot &amp; get the token</h2>
+          <div class="step-block">
+            <div class="n">1</div>
+            <div class="b">
+              <h3>Reveal the bot token</h3>
+              <p>Open the <strong>Bot</strong> tab in the left sidebar. Click <strong>Reset Token</strong> and confirm — Discord no longer shows an existing token, so you must reset to reveal one. Click <strong>Copy</strong> and keep it somewhere safe; you'll paste it into <code>.env</code> as <code>DISCORD_TOKEN</code>.</p>
+              <div class="callout warn"><strong>Keep it secret.</strong> Anyone with this token controls your bot. Each reset invalidates the previous token — if you reset again, update <code>DISCORD_TOKEN</code> and restart the container.</div>
+            </div>
+          </div>
+          <div class="step-block">
+            <div class="n">2</div>
+            <div class="b">
+              <h3>Authorization Flow toggles</h3>
+              <p>Still on the <strong>Bot</strong> tab, in the <strong>Authorization Flow</strong> section:</p>
+              <ul>
+                <li><strong>Public Bot</strong> — turn <em>OFF</em> for a private self-hosted bot, so only you (and app team members) can add it.</li>
+                <li><strong>Requires OAuth2 Code Grant</strong> — leave <em>OFF</em>. If it's on, simple invite links fail with an "integration requires code grant" error.</li>
+              </ul>
+            </div>
+          </div>
+          <div class="step-block">
+            <div class="n">3</div>
+            <div class="b">
+              <h3>Privileged Gateway Intents — leave them off</h3>
+              <p>Under <strong>Privileged Gateway Intents</strong>, leave <strong>Server Members Intent</strong> and <strong>Message Content Intent</strong> <em>OFF</em>. Scriber needs neither. Voice recording uses the standard (non-privileged) <em>Voice States</em> intent, which is enabled in Scriber's own code — there's no portal toggle for it. Leaving the privileged intents off also avoids Discord's 100-server verification requirements entirely.</p>
+            </div>
+          </div>
+
+          <!-- 3 -->
+          <h2 id="ids">3 · Find the IDs you need</h2>
+          <h3>Application ID (a.k.a. Client ID)</h3>
+          <p>On the <strong>General Information</strong> page, copy <strong>Application ID</strong>. (The identical value appears on the <strong>OAuth2</strong> tab as <em>Client ID</em>.) You'll use it to build the invite link.</p>
+
+          <h3>Server ID and Channel IDs (optional but recommended)</h3>
+          <p>To make slash commands appear <em>instantly</em> in one server (instead of waiting up to an hour for a global sync), set <code>DISCORD_GUILD_ID</code>. To get it, enable Developer Mode in the Discord app:</p>
+          <div class="step-block">
+            <div class="n">1</div>
+            <div class="b"><h3>Enable Developer Mode</h3><p>Discord app → <strong>User Settings</strong> (the gear, bottom-left) → <strong>Advanced</strong> → turn <strong>Developer Mode</strong> ON.</p></div>
+          </div>
+          <div class="step-block">
+            <div class="n">2</div>
+            <div class="b"><h3>Copy the IDs</h3><p>Right-click your <strong>server icon</strong> → <strong>Copy Server ID</strong> (this is the guild ID). Right-click a <strong>channel</strong> → <strong>Copy Channel ID</strong> if you ever need it.</p></div>
+          </div>
+
+          <!-- 4 -->
+          <h2 id="invite">4 · Invite the bot to your server</h2>
+          <p>The bot must be added with two scopes — <code>bot</code> (to join and record) and <code>applications.commands</code> (so <code>/scriber</code> registers). The four permissions Scriber advertises add up to the integer <code>1084416</code>:</p>
+
+          <div class="tags">
+            <span class="tag-perm">View Channels · 1024</span>
+            <span class="tag-perm">Send Messages · 2048</span>
+            <span class="tag-perm">Attach Files · 32768</span>
+            <span class="tag-perm">Connect · 1048576</span>
+          </div>
+          <table class="perm-table">
+            <thead><tr><th>Permission</th><th>Why Scriber needs it</th></tr></thead>
+            <tbody>
+              <tr><td><code>View Channels</code></td><td>See the voice &amp; text channels (required to join a voice channel).</td></tr>
+              <tr><td><code>Connect</code></td><td>Join the voice channel to receive audio. <em>Speak is deliberately not requested — the bot only listens.</em></td></tr>
+              <tr><td><code>Send Messages</code></td><td>Post the recording notice and the minutes in the text channel.</td></tr>
+              <tr><td><code>Attach Files</code></td><td>Post long transcripts/summaries as an attached <code>.md</code> file.</td></tr>
+            </tbody>
+          </table>
+
+          <h3>Easiest: use the ready-made invite URL</h3>
+          <p>Replace <code>YOUR_APPLICATION_ID</code> with the ID from step&nbsp;3 and open the URL in a browser:</p>
+<pre><code>https://discord.com/oauth2/authorize?client_id=<span class="tok-s">YOUR_APPLICATION_ID</span>&amp;scope=bot%20applications.commands&amp;permissions=<span class="tok-k">1084416</span></code></pre>
+          <p>Pick a server where you have <strong>Manage Server</strong>, click <strong>Authorize</strong>, and solve the captcha. The bot joins.</p>
+          <div class="callout">
+            <strong>Tip:</strong> Scriber logs this exact invite URL on startup, and the dashboard shows an
+            <em>"Invite the bot to your server"</em> button with the correct scopes if the bot isn't set up yet.
+          </div>
+
+          <h3>Or build it in the portal</h3>
+          <p>Two equivalent paths — use one consistently:</p>
+          <ul>
+            <li><strong>OAuth2 → URL Generator:</strong> tick the <code>bot</code> and <code>applications.commands</code> scopes, then in the permissions grid tick <em>View Channel, Send Messages, Attach Files, Connect</em>. Copy the generated URL.</li>
+            <li><strong>Installation tab</strong> (newer UI): enable <strong>Guild Install</strong>, set the Install Link to <em>Discord Provided Link</em>, and under <em>Default Install Settings</em> for Guild Install add the same scopes and permissions.</li>
+          </ul>
+          <div class="callout warn">
+            <strong>Don't use "User Install" alone.</strong> A user-installed app only gets the
+            <code>applications.commands</code> scope and <em>cannot join voice</em>. Make sure
+            <strong>Guild Install</strong> (with the <code>bot</code> scope) is enabled.
+          </div>
+
+          <!-- 5 -->
+          <h2 id="private">5 · Give the bot access to a private voice channel</h2>
+          <p>A <strong>private</strong> channel denies <em>View Channel</em> to <code>@everyone</code>; only roles or members with an explicit <em>allow</em> can see or join it. Server-wide permissions are <strong>not</strong> enough — you must add a channel-level override for the bot.</p>
+
+          <div class="step-block">
+            <div class="n">1</div>
+            <div class="b">
+              <h3>Open the voice channel's permissions</h3>
+              <p>Hover the private <strong>voice channel</strong> → gear (<em>Edit Channel</em>) → <strong>Permissions</strong>.</p>
+            </div>
+          </div>
+          <div class="step-block">
+            <div class="n">2</div>
+            <div class="b">
+              <h3>Add the bot and allow View Channel + Connect</h3>
+              <p>Under <em>Advanced permissions</em>, click <strong>+</strong> and add the bot's integration-managed role (auto-created with the bot's name) <em>or</em> the bot member directly. Set <strong>View Channel = ✔ (allow)</strong> and <strong>Connect = ✔ (allow)</strong>. Leave <em>Speak</em> off.</p>
+            </div>
+          </div>
+          <div class="step-block">
+            <div class="n">3</div>
+            <div class="b">
+              <h3>Grant the text channel too</h3>
+              <p>In the <strong>text channel</strong> where you'll run <code>/scriber start</code>, make sure the bot has <strong>View Channel</strong>, <strong>Send Messages</strong>, and <strong>Attach Files</strong>. If that text channel is also private, add an explicit allow override for the bot there as well. <em>Attach Files is required</em> — long minutes are posted as an attached file.</p>
+            </div>
+          </div>
+
+          <div class="callout">
+            <strong>Why channel overrides matter:</strong> channel-level permissions beat server-level roles.
+            A channel that denies <em>Connect</em> blocks the bot even if its server role grants Connect;
+            conversely a private channel needs an explicit <em>allow</em> for the bot. Adding the
+            <em>bot member</em> directly is the most reliable override. (Granting Administrator would also
+            work but is over-privileged — stick to the four scoped permissions.)
+          </div>
+
+          <!-- 6 -->
+          <h2 id="configure">6 · Configure Scriber</h2>
+          <p>Copy the example environment file and edit it. The only things you <em>must</em> set are <code>DISCORD_TOKEN</code> and one summary-provider block.</p>
+<pre><code>cp .env.example .env
+$EDITOR .env</code></pre>
+          <h3>Discord</h3>
+<pre><code><span class="tok-k">DISCORD_TOKEN</span>=<span class="tok-s">your-bot-token-from-step-2</span>
+<span class="tok-c"># Optional: instant slash-command sync in one server (see step 3)</span>
+<span class="tok-k">DISCORD_GUILD_ID</span>=<span class="tok-s">your-server-id</span></code></pre>
+
+          <h3>Summary providers (ordered failover list)</h3>
+          <p>Each provider is a numbered block (<code>_1</code>, <code>_2</code>, …), tried in order until one succeeds. A single block is fine. Secrets can later be edited from the dashboard Settings page.</p>
+<pre><code><span class="tok-c"># Provider 1: Anthropic (Claude) — tried first</span>
+<span class="tok-k">SUMMARY_PROVIDER_1</span>=<span class="tok-s">anthropic</span>
+<span class="tok-k">SUMMARY_API_KEY_1</span>=<span class="tok-s">sk-ant-xxxxxxxx</span>
+<span class="tok-k">SUMMARY_MODEL_1</span>=<span class="tok-s">claude-opus-4-8</span>
+<span class="tok-k">SUMMARY_BASE_URL_1</span>=<span class="tok-s">https://api.anthropic.com</span>
+
+<span class="tok-c"># Provider 2 (optional): OpenAI — tried if provider 1 fails</span>
+<span class="tok-k">SUMMARY_PROVIDER_2</span>=<span class="tok-s">openai</span>
+<span class="tok-k">SUMMARY_API_KEY_2</span>=<span class="tok-s">sk-xxxxxxxx</span>
+<span class="tok-k">SUMMARY_MODEL_2</span>=<span class="tok-s">gpt-4o</span>
+<span class="tok-k">SUMMARY_BASE_URL_2</span>=<span class="tok-s">https://api.openai.com/v1</span></code></pre>
+          <div class="callout">
+            <strong>Fully local?</strong> Set a provider to <code>openai-compatible</code> pointed at Ollama/vLLM/LM&nbsp;Studio/LocalAI
+            (e.g. <code>http://host.docker.internal:11434/v1</code>) and no meeting data leaves your machine at all.
+          </div>
+
+          <h3>Admin dashboard &amp; the rest</h3>
+          <p>Set the dashboard login and change the default password. Whisper, web bind, and storage keys all have sensible defaults — see the full reference in the <a href="https://github.com/lp177/Scriber#readme">README</a>.</p>
+<pre><code><span class="tok-k">ADMIN_USERNAME</span>=<span class="tok-s">admin</span>
+<span class="tok-k">ADMIN_PASSWORD</span>=<span class="tok-s">change-me</span>   <span class="tok-c"># change before exposing the port!</span>
+<span class="tok-k">WHISPER_MODEL</span>=<span class="tok-s">base</span>       <span class="tok-c"># tiny / base / small / medium / large-v3</span>
+<span class="tok-k">WHISPER_LANGUAGE</span>=<span class="tok-s">en</span>       <span class="tok-c"># default; override per meeting with lang:</span></code></pre>
+
+          <!-- 7 -->
+          <h2 id="run">7 · Run it</h2>
+          <p>With Docker Compose (a <code>compose.yaml</code> is included):</p>
+<pre><code>docker compose up -d          <span class="tok-c"># or: podman-compose up -d</span></code></pre>
+          <p>Or with a plain container run:</p>
+<pre><code>docker build -t scriber .
+docker run -d --name scriber \
+  --env-file .env \
+  -v ./data:/data \
+  -v ./.env:/app/.env \
+  -p 8080:8080 \
+  scriber</code></pre>
+          <p>Open <a href="http://localhost:8080">http://localhost:8080</a> and sign in with your
+          <code>ADMIN_USERNAME</code> / <code>ADMIN_PASSWORD</code>. The dashboard comes up even if the
+          bot has a problem, and shows exactly what to fix.</p>
+          <div class="callout">
+            <strong>First start is slow.</strong> The Whisper model downloads on first use into
+            <code>data/models/</code>; later meetings reuse the cache.
+          </div>
+
+          <!-- 8 -->
+          <h2 id="record">8 · Your first recording</h2>
+          <div class="step-block">
+            <div class="n">1</div>
+            <div class="b"><h3>Join a voice channel</h3><p>Be in a voice channel of the server, then run <code>/scriber start</code> in a text channel. Add <code>lang:fr</code> (or <code>auto</code>) to override the language for this meeting.</p></div>
+          </div>
+          <div class="step-block">
+            <div class="n">2</div>
+            <div class="b"><h3>Scriber posts a recording notice</h3><p>It names the voice channel, the local Whisper model, and the exact AI target the transcript will be sent to — so anyone can leave before being recorded. If the bot lacks View Channel/Connect on that channel, it tells you precisely which permission to add instead of hanging.</p></div>
+          </div>
+          <div class="step-block">
+            <div class="n">3</div>
+            <div class="b"><h3>Finish</h3><p>Run <code>/scriber stop</code> to transcribe, summarize, and post the Markdown minutes (attached as a file when long). Or <code>/scriber cancel</code> to discard everything. Scriber also stops on its own when left alone or after 2 minutes of silence.</p></div>
+          </div>
+
+          <!-- 9 -->
+          <h2 id="trouble">9 · Troubleshooting</h2>
+          <h3><code>/scriber</code> doesn't appear</h3>
+          <p>The bot was likely invited without <code>applications.commands</code>, so command registration returns <em>403 Missing Access</em>. Re-invite with <strong>both</strong> scopes (step&nbsp;4) — no need to kick it first — then re-run the sync from the dashboard (<em>Resync commands</em>) or restart. Guild commands appear instantly; a global sync can take up to an hour, so set <code>DISCORD_GUILD_ID</code> for testing.</p>
+
+          <h3>The bot won't join the voice channel</h3>
+          <p>Check it has <em>View Channel</em> and <em>Connect</em> on that <strong>specific</strong> channel (step&nbsp;5) — a channel override can deny Connect even when the server role allows it. Confirm you're in a voice channel of the same server. Scriber's start command reports the missing permission by name.</p>
+
+          <h3>Empty transcripts</h3>
+          <p>Make sure <code>libopus</code> is installed (it's built into the Docker image). On servers that require voice end-to-end encryption (DAVE), Scriber decrypts it automatically; if it can't, recordings may come out empty — check the container logs.</p>
+
+          <h3>Summary failed</h3>
+          <p>The transcript is never lost — Scriber attaches the raw transcript to the error message and keeps it in the dashboard. Verify your <code>SUMMARY_API_KEY</code>, <code>SUMMARY_MODEL</code>, and <code>SUMMARY_BASE_URL</code> on the Settings page. Add a second provider for automatic failover.</p>
+
+          <h3>nginx returns 502</h3>
+          <p>Keep <code>WEB_HOST=0.0.0.0</code> in <code>.env</code> (a loopback bind inside the container makes a published port unreachable) and keep the container side of <code>-p</code> at <code>8080</code>. Full reverse-proxy notes are in the <a href="https://github.com/lp177/Scriber#deploy-behind-an-nginx-reverse-proxy-production">README</a>.</p>
+
+          <div class="next-links">
+            <a href="https://github.com/lp177/Scriber#readme"><b>Full README →</b><span>Env reference, deployment, privacy, Whisper model sizes.</span></a>
+            <a href="./#screens"><b>See the dashboard →</b><span>Stats, meetings, participants and settings.</span></a>
+            <a href="https://github.com/lp177/Scriber"><b>Source on GitHub →</b><span>Issues, contributions and releases.</span></a>
+          </div>
+        </main>
+      </div>
+    </div>
+  </div>
+
+  <footer class="site-footer">
+    <div class="container">
+      <span>Scriber — self-hosted Discord meeting recorder. MIT licensed.</span>
+      <span class="foot-links">
+        <a href="./">Home</a>
+        <a href="https://github.com/lp177/Scriber">GitHub</a>
+        <a href="https://github.com/lp177/Scriber#readme">README</a>
+      </span>
+    </div>
+  </footer>
+</body>
+</html>

@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 560 132" role="img" aria-label="Scriber">
+  <title>Scriber</title>
+  <defs>
+    <linearGradient id="scriber-teal" x1="10" y1="10" x2="122" y2="122" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#3ee0cc"/>
+      <stop offset="1" stop-color="#12a99a"/>
+    </linearGradient>
+  </defs>
+  <g transform="translate(10,10) scale(0.2265625)">
+    <rect width="512" height="512" rx="116" fill="url(#scriber-teal)"/>
+    <g fill="#04211e">
+      <rect x="166" y="150" width="36" height="92" rx="18"/>
+      <rect x="238" y="121" width="36" height="150" rx="18"/>
+      <rect x="310" y="150" width="36" height="92" rx="18"/>
+      <rect x="166" y="306" width="180" height="32" rx="16"/>
+      <rect x="166" y="360" width="120" height="32" rx="16"/>
+    </g>
+  </g>
+  <text
+      x="150"
+      y="90"
+      font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif"
+      font-size="76"
+      font-weight="700"
+      letter-spacing="-1"
+      fill="#0f9d8f"
+   >
+      Scriber
+   </text>
+</svg>

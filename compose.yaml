@@ -1,0 +1,19 @@
+services:
+  scriber:
+    build: .
+    image: scriber
+    container_name: scriber
+    env_file: .env
+    environment:
+      SCRIBER_DATA_DIR: /data
+      SCRIBER_ENV_FILE: /app/.env
+    # Publish only on the host loopback so the container stays private to a
+    # reverse proxy (nginx). Format is host:container — the container side is
+    # 8080 (the app's WEB_PORT, kept at the image default); change only the host
+    # side (SCRIBER_HTTP_PORT, default 8080) to expose it elsewhere, e.g. 8885.
+    # WEB_HOST in .env must be 0.0.0.0 for the published port to reach the app.
+    ports: ["127.0.0.1:${SCRIBER_HTTP_PORT:-8080}:8080"]
+    volumes:
+      - ./data:/data
+      - ./.env:/app/.env     # so dashboard settings edits persist on the host
+    restart: unless-stopped

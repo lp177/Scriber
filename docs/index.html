@@ -1,0 +1,435 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Scriber — self-hosted Discord meeting recorder & minutes bot</title>
+  <meta name="description" content="Scriber joins your Discord voice channel, records per-speaker audio, transcribes it locally with Whisper, and writes the meeting minutes with the AI provider of your choice. Self-hostable in one container." />
+  <meta property="og:title" content="Scriber — self-hosted Discord meeting recorder" />
+  <meta property="og:description" content="Records Discord voice meetings, transcribes them locally with Whisper, and writes the minutes. One container, all local." />
+  <meta property="og:type" content="website" />
+  <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="site-header">
+    <div class="container">
+      <a class="brand" href="./" aria-label="Scriber home">
+        <svg viewBox="0 0 512 512" aria-hidden="true">
+          <defs>
+            <linearGradient id="bt-h" x1="0" y1="0" x2="512" y2="512" gradientUnits="userSpaceOnUse">
+              <stop offset="0" stop-color="#3ee0cc" /><stop offset="1" stop-color="#12a99a" />
+            </linearGradient>
+          </defs>
+          <rect width="512" height="512" rx="116" fill="url(#bt-h)" />
+          <g fill="#04211e">
+            <rect x="166" y="150" width="36" height="92" rx="18" />
+            <rect x="238" y="121" width="36" height="150" rx="18" />
+            <rect x="310" y="150" width="36" height="92" rx="18" />
+            <rect x="166" y="306" width="180" height="32" rx="16" />
+            <rect x="166" y="360" width="120" height="32" rx="16" />
+          </g>
+        </svg>
+        Scriber
+      </a>
+      <nav class="nav">
+        <a href="#features" class="hide-sm">Features</a>
+        <a href="#how" class="hide-sm">How it works</a>
+        <a href="#screens" class="hide-sm">Screens</a>
+        <a href="setup.html">Setup guide</a>
+        <a href="https://github.com/lp177/Scriber" class="nav-cta">GitHub ↗</a>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <!-- ---------------- Hero ---------------- -->
+    <section class="hero">
+      <div class="container">
+        <svg class="hero-logo" viewBox="0 0 512 512" aria-hidden="true">
+          <defs>
+            <linearGradient id="bt-hero" x1="0" y1="0" x2="512" y2="512" gradientUnits="userSpaceOnUse">
+              <stop offset="0" stop-color="#3ee0cc" /><stop offset="1" stop-color="#12a99a" />
+            </linearGradient>
+          </defs>
+          <rect width="512" height="512" rx="116" fill="url(#bt-hero)" />
+          <g fill="#04211e">
+            <rect x="166" y="150" width="36" height="92" rx="18" />
+            <rect x="238" y="121" width="36" height="150" rx="18" />
+            <rect x="310" y="150" width="36" height="92" rx="18" />
+            <rect x="166" y="306" width="180" height="32" rx="16" />
+            <rect x="166" y="360" width="120" height="32" rx="16" />
+          </g>
+        </svg>
+        <h1>Discord meetings, <span class="accent-word">recorded &amp; written up</span>.</h1>
+        <p class="tagline">
+          Scriber joins your voice channel, records per-speaker audio, transcribes it
+          <strong>locally</strong> with Whisper, and writes structured Markdown minutes.
+        </p>
+        <p class="subline">
+          Self-hostable in a single container. Audio never leaves your machine — only the
+          finished transcript is sent to the AI provider you choose (or to nothing at all,
+          with a local model).
+        </p>
+        <div class="cta-row">
+          <a class="btn primary" href="setup.html">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+            Get started
+          </a>
+          <a class="btn ghost" href="https://github.com/lp177/Scriber">
+            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.58 2 12.25c0 4.53 2.87 8.37 6.84 9.73.5.1.68-.22.68-.49 0-.24-.01-.87-.01-1.71-2.78.62-3.37-1.37-3.37-1.37-.45-1.18-1.11-1.49-1.11-1.49-.91-.64.07-.63.07-.63 1 .07 1.53 1.06 1.53 1.06.89 1.56 2.34 1.11 2.91.85.09-.66.35-1.11.63-1.36-2.22-.26-4.56-1.14-4.56-5.07 0-1.12.39-2.03 1.03-2.75-.1-.26-.45-1.3.1-2.71 0 0 .84-.28 2.75 1.05a9.4 9.4 0 0 1 5 0c1.91-1.33 2.75-1.05 2.75-1.05.55 1.41.2 2.45.1 2.71.64.72 1.03 1.63 1.03 2.75 0 3.94-2.34 4.81-4.57 5.06.36.32.68.94.68 1.9 0 1.37-.01 2.48-.01 2.82 0 .27.18.6.69.49A10.02 10.02 0 0 0 22 12.25C22 6.58 17.52 2 12 2Z"/></svg>
+            View on GitHub
+          </a>
+        </div>
+        <div class="badges">
+          <span class="pill"><span class="dot"></span> 100% local transcription</span>
+          <span class="pill"><span class="dot"></span> One Docker/Podman container</span>
+          <span class="pill"><span class="dot"></span> Anthropic · OpenAI · self-hosted</span>
+          <span class="pill"><span class="dot"></span> Built-in admin dashboard</span>
+          <span class="pill"><span class="dot"></span> MIT licensed</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- ---------------- Features ---------------- -->
+    <section class="section" id="features">
+      <div class="container">
+        <div class="section-head">
+          <div class="eyebrow">What you get</div>
+          <h2>A complete meeting pipeline, self-hosted</h2>
+          <p>From a slash command in Discord to polished minutes and a searchable dashboard — nothing leaves your infrastructure that you don't allow.</p>
+        </div>
+        <div class="feature-grid">
+          <div class="card">
+            <div class="ico">🔴</div>
+            <h3>One-command recording</h3>
+            <p><code>/scriber start</code>, <code>/scriber stop</code>, <code>/scriber cancel</code>. Scriber joins your voice channel and records per-speaker audio with timestamps.</p>
+          </div>
+          <div class="card">
+            <div class="ico">🗣️</div>
+            <h3>Local transcription</h3>
+            <p>Speech is transcribed on your own server with <a href="https://github.com/SYSTRAN/faster-whisper">faster-whisper</a>. Raw audio is never stored — only text.</p>
+          </div>
+          <div class="card">
+            <div class="ico">🤖</div>
+            <h3>AI minutes, your provider</h3>
+            <p>Structured Markdown minutes via Anthropic, OpenAI, or any OpenAI-compatible endpoint (Ollama, vLLM, LM Studio, LocalAI).</p>
+          </div>
+          <div class="card">
+            <div class="ico">🛟</div>
+            <h3>Provider failover</h3>
+            <p>Configure an ordered list of providers. If the first fails, Scriber automatically falls over to the next — and never loses the transcript.</p>
+          </div>
+          <div class="card">
+            <div class="ico">📢</div>
+            <h3>Consent-first recording notice</h3>
+            <p>When recording starts, Scriber posts a notice naming the model and the exact AI target, so everyone can leave before being recorded.</p>
+          </div>
+          <div class="card">
+            <div class="ico">🖥️</div>
+            <h3>Admin dashboard</h3>
+            <p>Vue 3 dashboard: stats, meeting history, transcript/summary editor, participants with avatars &amp; memory, and live settings.</p>
+          </div>
+          <div class="card">
+            <div class="ico">🧠</div>
+            <h3>Per-participant memory</h3>
+            <p>A per-user Markdown memory keeps names of people and projects spelled correctly across meetings, injected into the summary prompt.</p>
+          </div>
+          <div class="card">
+            <div class="ico">📦</div>
+            <h3>Single container</h3>
+            <p>Bot and dashboard run in one process; all state lives under <code>data/</code>. A Discord hiccup never takes the dashboard down.</p>
+          </div>
+          <div class="card">
+            <div class="ico">🔒</div>
+            <h3>Private by design</h3>
+            <p>Audio is transcribed locally and discarded. With a self-hosted summary model, no meeting data leaves your machine at all.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ---------------- How it works ---------------- -->
+    <section class="section alt" id="how">
+      <div class="container">
+        <div class="section-head">
+          <div class="eyebrow">How it works</div>
+          <h2>Three commands, zero fuss</h2>
+          <p>Everything happens from Discord. Scriber also stops on its own when it's left alone or hears nothing for two minutes.</p>
+        </div>
+        <div class="steps">
+          <div class="step">
+            <div class="num">1</div>
+            <h3><code>/scriber start</code></h3>
+            <p>Join your voice channel and run it. Scriber joins, posts the recording notice, and transcribes per-speaker audio locally while you talk.</p>
+          </div>
+          <div class="step">
+            <div class="num">2</div>
+            <h3><code>/scriber stop</code></h3>
+            <p>Scriber leaves, finishes transcribing, sends the transcript to your summary provider, and posts the Markdown minutes in the channel.</p>
+          </div>
+          <div class="step">
+            <div class="num">3</div>
+            <h3><code>/scriber cancel</code></h3>
+            <p>Leaves the channel and discards everything recorded so far. No transcript kept, nothing sent anywhere.</p>
+          </div>
+          <div class="step muted-step">
+            <div class="num">⏹</div>
+            <h3>Auto-stop</h3>
+            <p>If everyone leaves the channel, or nothing is said for 2 minutes, Scriber finishes on its own — exactly like <code>stop</code>.</p>
+          </div>
+        </div>
+
+        <div class="section-head" style="margin-top:56px;margin-bottom:28px;">
+          <h2 style="font-size:24px;">The data path</h2>
+        </div>
+        <div class="flow">
+          <div class="flow-node"><div class="ico">🎙️</div><h4>Discord voice</h4><p>Per-speaker Opus audio</p></div>
+          <div class="flow-arrow">→</div>
+          <div class="flow-node local"><div class="ico">💻</div><h4>Whisper (local)</h4><p>Transcribed on your server</p></div>
+          <div class="flow-arrow">→</div>
+          <div class="flow-node local"><div class="ico">📝</div><h4>Transcript</h4><p>Text saved to <code>data/</code></p></div>
+          <div class="flow-arrow">→</div>
+          <div class="flow-node"><div class="ico">✨</div><h4>AI summary</h4><p>Your provider → minutes</p></div>
+        </div>
+        <p class="flow-note">
+          <strong>Audio never leaves your machine.</strong> Only the finished transcript is sent
+          once to the summary provider you configure — and with a self-hosted model, not even that.
+        </p>
+      </div>
+    </section>
+
+    <!-- ---------------- Screenshots (recreated mockups) ---------------- -->
+    <section class="section" id="screens">
+      <div class="container">
+        <div class="section-head">
+          <div class="eyebrow">The dashboard</div>
+          <h2>Browse, edit and configure — all in one place</h2>
+          <p>A built-in admin dashboard served from the same container. (Faithful UI previews below.)</p>
+        </div>
+
+        <div class="shots">
+          <!-- Dashboard -->
+          <figure class="shot">
+            <div class="window">
+              <div class="window-bar">
+                <div class="window-dots"><i></i><i></i><i></i></div>
+                <div class="window-url">localhost:8080 — Dashboard</div>
+              </div>
+              <div class="window-body">
+                <div class="m">
+                  <div class="m-top">
+                    <span class="m-brand">
+                      <svg viewBox="0 0 512 512" aria-hidden="true"><rect width="512" height="512" rx="116" fill="#2dd4bf"/><g fill="#04211e"><rect x="166" y="150" width="36" height="92" rx="18"/><rect x="238" y="121" width="36" height="150" rx="18"/><rect x="310" y="150" width="36" height="92" rx="18"/><rect x="166" y="306" width="180" height="32" rx="16"/><rect x="166" y="360" width="120" height="32" rx="16"/></g></svg>
+                      Scriber
+                    </span>
+                    <span class="m-nav"><span class="on">Dashboard</span><span>Participants</span></span>
+                    <span class="spacer"></span>
+                    <span class="m-gear">⚙</span>
+                  </div>
+                  <div class="m-stats">
+                    <div class="m-stat"><div class="v">128</div><div class="l">Meetings</div></div>
+                    <div class="m-stat"><div class="v">119</div><div class="l">Completed</div></div>
+                    <div class="m-stat"><div class="v">42h</div><div class="l">Duration</div></div>
+                    <div class="m-stat"><div class="v">311k</div><div class="l">Words</div></div>
+                  </div>
+                  <div class="m-panel">
+                    <h4>Meetings per day</h4>
+                    <div class="m-chart">
+                      <div class="m-bar-row"><span>Mon</span><span class="m-bar" style="width:40%"></span><span class="c">2</span></div>
+                      <div class="m-bar-row"><span>Tue</span><span class="m-bar" style="width:85%"></span><span class="c">5</span></div>
+                      <div class="m-bar-row"><span>Wed</span><span class="m-bar" style="width:60%"></span><span class="c">3</span></div>
+                      <div class="m-bar-row"><span>Thu</span><span class="m-bar" style="width:100%"></span><span class="c">6</span></div>
+                      <div class="m-bar-row"><span>Fri</span><span class="m-bar" style="width:52%"></span><span class="c">3</span></div>
+                    </div>
+                  </div>
+                  <div class="m-panel">
+                    <table class="m-table">
+                      <thead><tr><th>Started</th><th>Channel</th><th>Status</th></tr></thead>
+                      <tbody>
+                        <tr><td class="m-mut">Jul 6, 14:02</td><td class="m-name">Standup</td><td><span class="m-badge completed">completed</span></td></tr>
+                        <tr><td class="m-mut">Jul 6, 11:30</td><td class="m-name">Design sync</td><td><span class="m-badge summarizing">summarizing</span></td></tr>
+                        <tr><td class="m-mut">Jul 5, 16:45</td><td class="m-name">Roadmap</td><td><span class="m-badge completed">completed</span></td></tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <figcaption><b>Dashboard</b> — stats, a meetings-per-day chart, and the full meeting history.</figcaption>
+          </figure>
+
+          <!-- Participants (avatar column highlighted) -->
+          <figure class="shot">
+            <div class="window">
+              <div class="window-bar">
+                <div class="window-dots"><i></i><i></i><i></i></div>
+                <div class="window-url">localhost:8080 — Participants</div>
+              </div>
+              <div class="window-body">
+                <div class="m">
+                  <div class="m-top">
+                    <span class="m-brand">
+                      <svg viewBox="0 0 512 512" aria-hidden="true"><rect width="512" height="512" rx="116" fill="#2dd4bf"/><g fill="#04211e"><rect x="166" y="150" width="36" height="92" rx="18"/><rect x="238" y="121" width="36" height="150" rx="18"/><rect x="310" y="150" width="36" height="92" rx="18"/><rect x="166" y="306" width="180" height="32" rx="16"/><rect x="166" y="360" width="120" height="32" rx="16"/></g></svg>
+                      Scriber
+                    </span>
+                    <span class="m-nav"><span>Dashboard</span><span class="on">Participants</span></span>
+                    <span class="spacer"></span>
+                    <span class="m-gear">⚙</span>
+                  </div>
+                  <div class="m-h1">Participants</div>
+                  <div class="m-panel">
+                    <table class="m-table">
+                      <thead><tr><th class="m-av-col"></th><th>Name</th><th>Sessions</th><th>Last session</th></tr></thead>
+                      <tbody>
+                        <tr><td class="m-av-col"><span class="m-av g1">AL</span></td><td class="m-name">Alex Lindgren</td><td>24</td><td class="m-mut">Jul 6, 2026</td></tr>
+                        <tr><td class="m-av-col"><span class="m-av g2">PR</span></td><td class="m-name">Priya Raman</td><td>18</td><td class="m-mut">Jul 6, 2026</td></tr>
+                        <tr><td class="m-av-col"><span class="m-av g3">JK</span></td><td class="m-name">Jonas Krause</td><td>15</td><td class="m-mut">Jul 5, 2026</td></tr>
+                        <tr><td class="m-av-col"><span class="m-av ph">?</span></td><td class="m-name">newcomer_42</td><td>1</td><td class="m-mut">Jul 5, 2026</td></tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <figcaption><b>Participants</b> — now with a compact 30×30 avatar column (initials when no image).</figcaption>
+          </figure>
+
+          <!-- Settings -->
+          <figure class="shot">
+            <div class="window">
+              <div class="window-bar">
+                <div class="window-dots"><i></i><i></i><i></i></div>
+                <div class="window-url">localhost:8080 — Settings</div>
+              </div>
+              <div class="window-body">
+                <div class="m">
+                  <div class="m-h1">Settings</div>
+                  <div class="m-prov">
+                    <div class="ph-head"><span class="tag">Provider 1</span><span class="m-mut">tried first</span></div>
+                    <div class="m-field"><div class="m-input">anthropic <span class="lock">kind</span></div></div>
+                    <div class="m-field"><div class="m-input">••••••••••••  sk-ant <span class="lock">🔒 secret</span></div></div>
+                    <div class="m-field"><div class="m-input">claude-opus-4-8 <span class="lock">model</span></div></div>
+                  </div>
+                  <div class="m-prov">
+                    <div class="ph-head"><span class="tag">Provider 2</span><span class="m-mut">failover</span></div>
+                    <div class="m-field"><div class="m-input">openai <span class="lock">kind</span></div></div>
+                    <div class="m-field"><div class="m-input">gpt-4o <span class="lock">model</span></div></div>
+                  </div>
+                  <div class="m-field"><label>Whisper model</label><div class="m-input">base <span class="lock">editable</span></div></div>
+                  <div class="m-field"><label>Default language</label><div class="m-input">en <span class="lock">editable</span></div></div>
+                </div>
+              </div>
+            </div>
+            <figcaption><b>Settings</b> — the provider failover list, Whisper &amp; admin. Secrets masked, saved to <code>.env</code>.</figcaption>
+          </figure>
+
+          <!-- Meeting detail -->
+          <figure class="shot">
+            <div class="window">
+              <div class="window-bar">
+                <div class="window-dots"><i></i><i></i><i></i></div>
+                <div class="window-url">localhost:8080 — Meeting</div>
+              </div>
+              <div class="window-body">
+                <div class="m">
+                  <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+                    <span class="m-h1" style="margin:0;">Design sync</span>
+                    <span class="m-badge completed">completed</span>
+                  </div>
+                  <div class="m-meta">
+                    <div><div class="k">Started</div><div class="val">Jul 6, 11:30</div></div>
+                    <div><div class="k">Duration</div><div class="val">38 min</div></div>
+                    <div><div class="k">Speakers</div><div class="val">4</div></div>
+                  </div>
+                  <div class="m-panel">
+                    <div class="m-md">
+                      <h5>Meeting minutes</h5>
+                      <p>The team agreed to ship the avatar column and finalize the docs site.</p>
+                      <p style="color:var(--text);font-weight:700;margin-bottom:3px;">Decisions</p>
+                      <ul>
+                        <li>Adopt MIT license for the public release.</li>
+                        <li>Publish the docs site from <code>/docs</code>.</li>
+                      </ul>
+                      <p style="color:var(--text);font-weight:700;margin:6px 0 3px;">Action items</p>
+                      <ul><li>Priya: capture real screenshots.</li></ul>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <figcaption><b>Meeting detail</b> — editable transcript &amp; summary, metadata, and the processing log.</figcaption>
+          </figure>
+        </div>
+
+        <p class="flow-note" style="margin-top:32px;">
+          These are recreated UI previews. To show your own instance, drop PNGs into
+          <code>docs/screenshots/</code> — see the
+          <a href="https://github.com/lp177/Scriber/tree/main/docs/screenshots">screenshots readme</a>.
+        </p>
+      </div>
+    </section>
+
+    <!-- ---------------- Quick start ---------------- -->
+    <section class="section alt" id="quickstart">
+      <div class="container">
+        <div class="section-head">
+          <div class="eyebrow">Quick start</div>
+          <h2>Running in a few minutes</h2>
+          <p>You need a Discord bot token and at least one AI provider key. The full walkthrough is in the setup guide.</p>
+        </div>
+        <div style="max-width:760px;margin:0 auto;">
+<pre><code><span class="tok-c"># 1. Get the code</span>
+git clone https://github.com/lp177/Scriber.git
+cd Scriber
+
+<span class="tok-c"># 2. Configure — set DISCORD_TOKEN and one SUMMARY_PROVIDER block</span>
+cp .env.example .env
+<span class="tok-c">$EDITOR .env</span>
+
+<span class="tok-c"># 3. Build &amp; run (Docker or Podman)</span>
+docker compose up -d
+
+<span class="tok-c"># 4. Open the dashboard</span>
+<span class="tok-c">#    http://localhost:8080  (login with ADMIN_USERNAME / ADMIN_PASSWORD)</span></code></pre>
+          <div class="callout">
+            <strong>Next:</strong> create the Discord bot, find your IDs, invite it, and give it
+            access to a private voice channel — all covered step by step in the
+            <a href="setup.html">setup guide</a>.
+          </div>
+          <div style="text-align:center;margin-top:24px;">
+            <a class="btn primary" href="setup.html">Open the full setup guide →</a>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ---------------- Privacy ---------------- -->
+    <section class="section" id="privacy">
+      <div class="container">
+        <div class="section-head">
+          <div class="eyebrow">Data &amp; privacy</div>
+          <h2>Local-first, consent-first</h2>
+        </div>
+        <div class="feature-grid">
+          <div class="card"><div class="ico">🎧</div><h3>Audio stays put</h3><p>Voice is transcribed locally with Whisper and the raw audio is never written to disk — only text.</p></div>
+          <div class="card"><div class="ico">📤</div><h3>One outbound payload</h3><p>Only the finished transcript is sent, once, to your chosen summary provider. Use a local model and nothing leaves at all.</p></div>
+          <div class="card"><div class="ico">🗑️</div><h3>Cancel means gone</h3><p><code>/scriber cancel</code> discards everything recorded so far. Delete a meeting from the dashboard to remove its files and row.</p></div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container">
+      <span>Scriber — self-hosted Discord meeting recorder. MIT licensed.</span>
+      <span class="foot-links">
+        <a href="https://github.com/lp177/Scriber">GitHub</a>
+        <a href="setup.html">Setup guide</a>
+        <a href="https://github.com/lp177/Scriber#readme">Docs</a>
+        <a href="https://github.com/SYSTRAN/faster-whisper">faster-whisper</a>
+      </span>
+    </div>
+  </footer>
+</body>
+</html>

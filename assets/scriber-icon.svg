@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Scriber">
+  <title>Scriber</title>
+  <defs>
+    <linearGradient id="scriber-teal" x1="0" y1="0" x2="512" y2="512" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#3ee0cc"/>
+      <stop offset="1" stop-color="#12a99a"/>
+    </linearGradient>
+  </defs>
+  <!-- App tile in the brand teal gradient -->
+  <rect width="512" height="512" rx="116" fill="url(#scriber-teal)"/>
+  <!-- Glyph: a soundwave (voice) turning into two written lines (notes) -->
+  <g fill="#04211e">
+    <rect x="166" y="150" width="36" height="92" rx="18"/>
+    <rect x="238" y="121" width="36" height="150" rx="18"/>
+    <rect x="310" y="150" width="36" height="92" rx="18"/>
+    <rect x="166" y="306" width="180" height="32" rx="16"/>
+    <rect x="166" y="360" width="120" height="32" rx="16"/>
+  </g>
+</svg>

@@ -1,0 +1,15 @@
+# Runtime data (SQLite DB, transcripts, downloaded Whisper models)
+data/
+
+# Local configuration with secrets
+.env
+CLAUDE.md
+
+# Node / frontend build output
+node_modules/
+frontend/dist/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
