@@ -67,6 +67,8 @@ CREATE TABLE IF NOT EXISTS users (
     display_name TEXT NOT NULL,
     description TEXT NOT NULL DEFAULT '',
     avatar_path TEXT,
+    avatar_source TEXT,
+    discord_avatar_key TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 )
@@ -109,7 +111,17 @@ def init(db_path: pathlib.Path) -> None:
         _conn.execute(_SCHEMA)
         _conn.execute(_USERS_SCHEMA)
         _conn.execute(_PARTICIPANTS_SCHEMA)
+        _migrate(_conn)
         _conn.commit()
+
+
+def _migrate(conn: sqlite3.Connection) -> None:
+    """Add columns introduced after the initial schema to a pre-existing DB."""
+    user_cols = {row["name"] for row in conn.execute("PRAGMA table_info(users)")}
+    if "avatar_source" not in user_cols:
+        conn.execute("ALTER TABLE users ADD COLUMN avatar_source TEXT")
+    if "discord_avatar_key" not in user_cols:
+        conn.execute("ALTER TABLE users ADD COLUMN discord_avatar_key TEXT")
 
 
 def close() -> None:
@@ -296,6 +308,37 @@ def update_user(user_id: str, **fields) -> None:
             values,
         )
         conn.commit()
+
+
+def set_avatar(
+    user_id: str, avatar_path: str, source: str, discord_avatar_key: str | None = None
+) -> None:
+    """Record a user's avatar and where it came from.
+
+    ``source`` is ``'discord'`` (auto-synced from the member's Discord avatar) or
+    ``'manual'`` (uploaded from the dashboard). A manual upload passes
+    ``discord_avatar_key=None`` to clear the stored key so a later meeting's
+    auto-sync will not overwrite the deliberate choice.
+    """
+    with _lock:
+        conn = _require_conn()
+        conn.execute(
+            "UPDATE users SET avatar_path = ?, avatar_source = ?, "
+            "discord_avatar_key = ?, updated_at = ? WHERE id = ?",
+            (avatar_path, source, discord_avatar_key, _utcnow(), user_id),
+        )
+        conn.commit()
+
+
+def get_user_avatar(user_id: str) -> dict | None:
+    """Return a user's avatar bookkeeping (path/source/discord key), or None."""
+    with _lock:
+        conn = _require_conn()
+        row = conn.execute(
+            "SELECT avatar_path, avatar_source, discord_avatar_key FROM users WHERE id = ?",
+            (user_id,),
+        ).fetchone()
+    return dict(row) if row is not None else None
 
 
 def get_user(user_id: str) -> dict | None:

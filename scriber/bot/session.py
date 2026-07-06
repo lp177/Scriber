@@ -27,6 +27,12 @@ log = logging.getLogger(__name__)
 #: Interval (seconds) between sink flush checks while recording.
 FLUSH_INTERVAL = 0.25
 
+#: Extensions an avatar may be stored under (kept in sync with the web layer).
+_AVATAR_EXTS: tuple[str, ...] = (".png", ".jpg", ".jpeg", ".gif", ".webp")
+
+#: Pixel size requested for auto-synced Discord avatars.
+_AVATAR_SIZE = 128
+
 
 def _new_meeting_id() -> str:
     """Generate a unique, sortable meeting ID."""
@@ -189,6 +195,64 @@ class MeetingSession:
                 *(asyncio.wrap_future(future) for future in pending), return_exceptions=True
             )
 
+    async def _sync_one_avatar(self, uid: str, avatars_dir: Path) -> None:
+        """Fetch one participant's Discord avatar into ``avatars_dir`` (best-effort)."""
+        try:
+            member = self.guild.get_member(int(uid))
+        except (TypeError, ValueError):
+            return
+        if member is None:
+            with contextlib.suppress(Exception):
+                member = await self.guild.fetch_member(int(uid))
+        if member is None:
+            return
+        # Only the member's own avatar (server-specific first) — skip Discord's
+        # generic default so those users keep the nicer initials placeholder.
+        asset = member.guild_avatar or member.avatar
+        if asset is None:
+            return
+        state = database.get_user_avatar(uid)
+        if state is None or state.get("avatar_source") == "manual":
+            return  # user set a custom avatar in the dashboard — don't overwrite it
+        ext = ".gif" if asset.is_animated() else ".png"
+        target = (avatars_dir / f"{uid}{ext}").resolve()
+        if state.get("discord_avatar_key") == asset.key and target.exists():
+            return  # unchanged since the last sync
+        try:
+            sized = (
+                asset.with_size(_AVATAR_SIZE)
+                if asset.is_animated()
+                else asset.replace(size=_AVATAR_SIZE, format="png")
+            )
+            data = await asyncio.wait_for(sized.read(), timeout=10)
+        except Exception as exc:
+            log.debug("Meeting %s: avatar fetch failed for user %s: %s", self.meeting_id, uid, exc)
+            return
+        try:
+            avatars_dir.mkdir(parents=True, exist_ok=True)
+            # Drop any avatar previously stored under a different extension.
+            for other in _AVATAR_EXTS:
+                if other != ext:
+                    (avatars_dir / f"{uid}{other}").unlink(missing_ok=True)
+            target.write_bytes(data)
+        except OSError as exc:
+            log.debug("Meeting %s: avatar write failed for user %s: %s", self.meeting_id, uid, exc)
+            return
+        database.set_avatar(uid, str(target), "discord", asset.key)
+
+    async def _sync_participant_avatars(self) -> None:
+        """Best-effort: pull each speaker's Discord avatar into the dashboard.
+
+        Runs after the transcript is persisted. Never raises — a Discord/CDN
+        problem must not fail the meeting. Manually-uploaded avatars are left
+        untouched, and an unchanged avatar is not re-downloaded.
+        """
+        avatars_dir = (config.get().data_dir / "avatars").resolve()
+        await asyncio.gather(
+            *(self._sync_one_avatar(uid, avatars_dir) for uid in self.participant_names),
+            return_exceptions=True,
+        )
+
     async def stop(self) -> tuple[str, dict]:
         """Finish the recording: drain audio, write the transcript file, update the DB.
 
@@ -233,6 +297,12 @@ class MeetingSession:
         for user_id, name in self.participant_names.items():
             database.upsert_user(user_id, name)
             database.record_participation(self.meeting_id, user_id, name)
+
+        # Best-effort: refresh each speaker's avatar from Discord for the dashboard.
+        try:
+            await self._sync_participant_avatars()
+        except Exception:  # pragma: no cover - defensive; sync is already guarded
+            log.warning("Meeting %s: participant avatar sync failed.", self.meeting_id, exc_info=True)
 
         participant_count = len(self.participant_names)
         database.update_meeting(

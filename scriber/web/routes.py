@@ -463,7 +463,8 @@ async def upload_avatar(
         target.write_bytes(data)
     except OSError as exc:
         raise HTTPException(status_code=500, detail="Failed to store avatar") from exc
-    database.update_user(user_id, avatar_path=str(target))
+    # Mark as a manual upload so the per-meeting Discord avatar sync won't overwrite it.
+    database.set_avatar(user_id, str(target), "manual")
     return {"ok": True, "has_avatar": True}
 
 
