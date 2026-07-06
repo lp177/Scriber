@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>REST API — Scriber</title>
+  <meta name="description" content="Scriber's token-authenticated REST API: create API tokens in the dashboard, then read (and optionally write) meetings, participants and memories with an Authorization: Bearer header." />
+  <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="site-header">
+    <div class="container">
+      <a class="brand" href="./" aria-label="Scriber home">
+        <svg viewBox="0 0 512 512" aria-hidden="true">
+          <defs>
+            <linearGradient id="bt-a" x1="0" y1="0" x2="512" y2="512" gradientUnits="userSpaceOnUse">
+              <stop offset="0" stop-color="#3ee0cc" /><stop offset="1" stop-color="#12a99a" />
+            </linearGradient>
+          </defs>
+          <rect width="512" height="512" rx="116" fill="url(#bt-a)" />
+          <g fill="#04211e">
+            <rect x="166" y="150" width="36" height="92" rx="18" />
+            <rect x="238" y="121" width="36" height="150" rx="18" />
+            <rect x="310" y="150" width="36" height="92" rx="18" />
+            <rect x="166" y="306" width="180" height="32" rx="16" />
+            <rect x="166" y="360" width="120" height="32" rx="16" />
+          </g>
+        </svg>
+        Scriber
+      </a>
+      <nav class="nav">
+        <a href="./#features" class="hide-sm">Features</a>
+        <a href="setup.html">Setup guide</a>
+        <a href="api.html">API</a>
+        <a href="https://github.com/lp177/Scriber" class="nav-cta">GitHub ↗</a>
+      </nav>
+    </div>
+  </header>
+
+  <div class="doc">
+    <div class="container">
+      <div class="doc-layout">
+        <aside class="toc">
+          <h4>On this page</h4>
+          <ol>
+            <li><a href="#overview">Overview</a></li>
+            <li><a href="#tokens">Create a token</a></li>
+            <li><a href="#auth">Authentication</a></li>
+            <li><a href="#scopes">Scopes</a></li>
+            <li><a href="#read">Read endpoints</a></li>
+            <li><a href="#write">Write endpoints</a></li>
+            <li><a href="#examples">Examples</a></li>
+            <li><a href="#security">Token security</a></li>
+          </ol>
+        </aside>
+
+        <main class="doc-main">
+          <h1>Scriber REST API</h1>
+          <p class="doc-lead">
+            A token-authenticated REST API to read (and optionally write) everything Scriber stores —
+            meetings, transcripts, summaries, participants and their memories — from your own scripts
+            and integrations.
+          </p>
+
+          <h2 id="overview">Overview</h2>
+          <ul>
+            <li><strong>Base URL:</strong> the same origin as your dashboard, under <code>/api/v1</code> — e.g. <code>https://your-scriber-host/api/v1</code>.</li>
+            <li><strong>Auth:</strong> a bearer token in the <code>Authorization</code> header (see below). It's separate from the dashboard login.</li>
+            <li><strong>Format:</strong> JSON responses (text for transcript/summary, image bytes for avatars).</li>
+            <li><strong>Scopes:</strong> <code>read</code> (GET only) or <code>readwrite</code> (GET + PUT).</li>
+          </ul>
+
+          <h2 id="tokens">Create a token</h2>
+          <div class="step-block">
+            <div class="n">1</div>
+            <div class="b">
+              <h3>Open the dashboard Settings</h3>
+              <p>Sign in to the dashboard and open <strong>Settings</strong> (⚙️). Scroll to <strong>API access</strong>.</p>
+            </div>
+          </div>
+          <div class="step-block">
+            <div class="n">2</div>
+            <div class="b">
+              <h3>Name it and pick a scope</h3>
+              <p>Enter a name (e.g. <code>analytics-script</code>), choose <em>Read only</em> or <em>Read &amp; write</em>, and click <strong>Create token</strong>.</p>
+            </div>
+          </div>
+          <div class="step-block">
+            <div class="n">3</div>
+            <div class="b">
+              <h3>Copy it now</h3>
+              <p>The full token is shown <strong>once</strong> — copy it immediately. Scriber stores only a hash, so it can't show it again. You can see each token's name, prefix, scope and last-used time later, rename/re-scope it, or delete it to revoke access.</p>
+            </div>
+          </div>
+
+          <h2 id="auth">Authentication</h2>
+          <p>Send the token as a bearer credential on every request:</p>
+<pre><code>Authorization: Bearer <span class="tok-s">&lt;your-token&gt;</span></code></pre>
+          <ul>
+            <li><code>401 Unauthorized</code> — missing header or unknown/revoked token.</li>
+            <li><code>403 Forbidden</code> — valid token, but it's <em>read-only</em> and you called a write endpoint.</li>
+          </ul>
+
+          <h2 id="scopes">Scopes</h2>
+          <table class="perm-table">
+            <thead><tr><th>Scope</th><th>Can do</th></tr></thead>
+            <tbody>
+              <tr><td><code>read</code></td><td>All <code>GET</code> endpoints — list/read meetings, transcripts, summaries, participants, memories, avatars, stats.</td></tr>
+              <tr><td><code>readwrite</code></td><td>Everything <code>read</code> can, plus <code>PUT</code> to edit transcripts, summaries, participant profiles and memories.</td></tr>
+            </tbody>
+          </table>
+
+          <h2 id="read">Read endpoints <span class="tag-perm" style="vertical-align:middle;">any token</span></h2>
+          <table class="perm-table">
+            <thead><tr><th>Method &amp; path</th><th>Returns</th></tr></thead>
+            <tbody>
+              <tr><td><code>GET /api/v1/me</code></td><td>Info about the calling token (name, scope, usage).</td></tr>
+              <tr><td><code>GET /api/v1/stats</code></td><td>Aggregate stats + live active-session count.</td></tr>
+              <tr><td><code>GET /api/v1/meetings?limit=&amp;offset=</code></td><td>Paginated meeting list, newest first (<code>{total, items}</code>).</td></tr>
+              <tr><td><code>GET /api/v1/meetings/{id}</code></td><td>One meeting incl. metadata and processing log.</td></tr>
+              <tr><td><code>GET /api/v1/meetings/{id}/transcript</code></td><td>Transcript as text (<code>?download=1</code> for attachment).</td></tr>
+              <tr><td><code>GET /api/v1/meetings/{id}/summary</code></td><td>Summary as Markdown (<code>?download=1</code>).</td></tr>
+              <tr><td><code>GET /api/v1/participants?limit=&amp;offset=</code></td><td>Paginated participant list (<code>{total, items}</code>).</td></tr>
+              <tr><td><code>GET /api/v1/participants/{id}</code></td><td>One participant incl. memory and joined sessions.</td></tr>
+              <tr><td><code>GET /api/v1/participants/{id}/memory</code></td><td>The participant's Markdown memory (<code>{content}</code>).</td></tr>
+              <tr><td><code>GET /api/v1/participants/{id}/avatar</code></td><td>The participant's avatar image.</td></tr>
+            </tbody>
+          </table>
+
+          <h2 id="write">Write endpoints <span class="tag-perm" style="vertical-align:middle;">readwrite</span></h2>
+          <table class="perm-table">
+            <thead><tr><th>Method &amp; path</th><th>Body → effect</th></tr></thead>
+            <tbody>
+              <tr><td><code>PUT /api/v1/meetings/{id}/transcript</code></td><td><code>{"content": "…"}</code> → overwrite the transcript.</td></tr>
+              <tr><td><code>PUT /api/v1/meetings/{id}/summary</code></td><td><code>{"content": "…"}</code> → overwrite the summary.</td></tr>
+              <tr><td><code>PUT /api/v1/participants/{id}</code></td><td><code>{"display_name"?, "description"?}</code> → update the profile.</td></tr>
+              <tr><td><code>PUT /api/v1/participants/{id}/memory</code></td><td><code>{"content": "…"}</code> → overwrite the memory file.</td></tr>
+            </tbody>
+          </table>
+
+          <h2 id="examples">Examples</h2>
+          <p>List recent meetings:</p>
+<pre><code>curl -H <span class="tok-s">"Authorization: Bearer $TOKEN"</span> \
+  https://your-scriber-host/api/v1/meetings?limit=5</code></pre>
+          <p>Download a meeting summary as Markdown:</p>
+<pre><code>curl -H <span class="tok-s">"Authorization: Bearer $TOKEN"</span> \
+  https://your-scriber-host/api/v1/meetings/<span class="tok-s">20260706-140233-ab12</span>/summary</code></pre>
+          <p>Edit a participant's memory (needs a <code>readwrite</code> token):</p>
+<pre><code>curl -X PUT \
+  -H <span class="tok-s">"Authorization: Bearer $TOKEN"</span> \
+  -H <span class="tok-s">"Content-Type: application/json"</span> \
+  -d <span class="tok-s">'{"content": "# Notes\n- Prefers to be called Sam."}'</span> \
+  https://your-scriber-host/api/v1/participants/<span class="tok-s">123456789012345678</span>/memory</code></pre>
+          <p>Check what a token can do:</p>
+<pre><code>curl -H <span class="tok-s">"Authorization: Bearer $TOKEN"</span> https://your-scriber-host/api/v1/me
+<span class="tok-c"># {"name":"analytics-script","scope":"read","created_at":"…","last_used_at":"…"}</span></code></pre>
+
+          <h2 id="security">Token security</h2>
+          <ul>
+            <li>Tokens are <strong>48-character alphanumeric</strong> secrets (<code>[A-Za-z0-9]</code>) — ~285 bits of entropy, safe to paste into a chat without characters being mangled, and infeasible to brute-force.</li>
+            <li>Scriber stores only a <strong>SHA-256 hash</strong>; the plaintext is shown once at creation and never persisted.</li>
+            <li><strong>Revoke</strong> a token any time by deleting it in Settings — the change is immediate.</li>
+            <li>Prefer <code>read</code> scope unless a client genuinely needs to write. Treat tokens like passwords.</li>
+            <li>The API is served over the same TLS endpoint as your dashboard — always call it over HTTPS in production.</li>
+          </ul>
+
+          <div class="next-links">
+            <a href="setup.html"><b>Setup guide →</b><span>Create the bot and get Scriber running.</span></a>
+            <a href="https://github.com/lp177/Scriber#readme"><b>Full README →</b><span>Configuration and deployment reference.</span></a>
+            <a href="./#screens"><b>The dashboard →</b><span>Where you create and manage tokens.</span></a>
+          </div>
+        </main>
+      </div>
+    </div>
+  </div>
+
+  <footer class="site-footer">
+    <div class="container">
+      <span>Scriber — self-hosted Discord meeting recorder. MIT licensed.</span>
+      <span class="foot-links">
+        <a href="./">Home</a>
+        <a href="setup.html">Setup guide</a>
+        <a href="api.html">API</a>
+        <a href="https://github.com/lp177/Scriber">GitHub</a>
+      </span>
+    </div>
+  </footer>
+</body>
+</html>

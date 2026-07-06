@@ -11,7 +11,8 @@
   <a href="https://lp177.github.io/Scriber/setup.html">Setup guide</a> ·
   <a href="#discord-application-setup">Discord setup</a> ·
   <a href="#configuration">Configuration</a> ·
-  <a href="#run-with-docker">Run</a>
+  <a href="#run-with-docker">Run</a> ·
+  <a href="#api">API</a>
 </p>
 
 Scriber is a **self-hostable Discord meeting-recording bot**. It joins a voice
@@ -363,6 +364,46 @@ Open <http://localhost:8080> and sign in with `ADMIN_USERNAME` /
 - `GET /api/health` is available without authentication for monitoring and
   returns the bot connection status plus a short `notice` when the bot needs
   attention (used to warn on the login page before you sign in).
+
+## API
+
+Scriber exposes a **token-authenticated REST API** for reading (and optionally
+writing) everything it stores — meetings, transcripts, summaries, participants
+and memories — so you can plug it into your own scripts and integrations.
+
+1. **Create a token** in the dashboard under **Settings → API access**. Give it
+   a name and a scope — `read` (GET only) or `read & write` (GET + edits). The
+   token is a 48-character alphanumeric secret shown **once**; Scriber stores
+   only its SHA-256 hash. Delete a token to revoke it immediately.
+2. **Call the API** under `/api/v1` on the same host as the dashboard, sending
+   the token as a bearer credential:
+
+   ```sh
+   curl -H "Authorization: Bearer <token>" https://your-host/api/v1/meetings
+   ```
+
+`401` means the token is missing or invalid; `403` means a read-only token tried
+a write. Key endpoints (see `GET /api/v1/` for the full list):
+
+| Method & path | Scope | Purpose |
+| --- | --- | --- |
+| `GET /api/v1/me` | read | Info about the calling token |
+| `GET /api/v1/stats` | read | Aggregate statistics |
+| `GET /api/v1/meetings` | read | Paginated meeting list |
+| `GET /api/v1/meetings/{id}` | read | One meeting incl. log |
+| `GET /api/v1/meetings/{id}/transcript` | read | Transcript text |
+| `GET /api/v1/meetings/{id}/summary` | read | Summary Markdown |
+| `GET /api/v1/participants` | read | Paginated participant list |
+| `GET /api/v1/participants/{id}` | read | Participant + memory + sessions |
+| `GET /api/v1/participants/{id}/memory` | read | Memory Markdown |
+| `GET /api/v1/participants/{id}/avatar` | read | Avatar image |
+| `PUT /api/v1/meetings/{id}/transcript` | read & write | Overwrite transcript |
+| `PUT /api/v1/meetings/{id}/summary` | read & write | Overwrite summary |
+| `PUT /api/v1/participants/{id}` | read & write | Update name/description |
+| `PUT /api/v1/participants/{id}/memory` | read & write | Overwrite memory |
+
+Full reference with `curl` examples: the
+**[API documentation](https://lp177.github.io/Scriber/api.html)**.
 
 ## Whisper model sizes
 
