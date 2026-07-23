@@ -51,6 +51,7 @@
             <li><a href="#read">Read endpoints</a></li>
             <li><a href="#write">Write endpoints</a></li>
             <li><a href="#examples">Examples</a></li>
+            <li><a href="#mcp">MCP server</a></li>
             <li><a href="#security">Token security</a></li>
           </ol>
         </aside>
@@ -155,6 +156,38 @@
           <p>Check what a token can do:</p>
 <pre><code>curl -H <span class="tok-s">"Authorization: Bearer $TOKEN"</span> https://your-scriber-host/api/v1/me
 <span class="tok-c"># {"name":"analytics-script","scope":"read","created_at":"…","last_used_at":"…"}</span></code></pre>
+
+          <h2 id="mcp">MCP server</h2>
+          <p>
+            The same data is also available over the
+            <a href="https://modelcontextprotocol.io">Model Context Protocol</a>, so AI assistants
+            (Claude Code, Claude Desktop, Cursor, …) get purpose-built tools instead of raw HTTP.
+            The MCP server listens on its <strong>own port</strong> (<code>MCP_PORT</code>, default
+            <code>8081</code>, streamable HTTP at <code>/mcp</code>) and authenticates with the
+            <strong>same API tokens</strong> and scopes as the REST API. It runs by default, but the
+            shipped compose file publishes the port on <code>127.0.0.1</code> only, so it stays
+            private to the machine; set <code>MCP_ENABLED=false</code> to turn it off entirely.
+          </p>
+          <p>Add it to Claude Code:</p>
+<pre><code>claude mcp add --transport http scriber http://127.0.0.1:8081/mcp \
+  --header <span class="tok-s">"Authorization: Bearer $TOKEN"</span></code></pre>
+          <p>Or in any client that takes a JSON server config:</p>
+<pre><code>{
+  "mcpServers": {
+    "scriber": {
+      "type": "http",
+      "url": "http://127.0.0.1:8081/mcp",
+      "headers": { "Authorization": "Bearer <span class="tok-s">&lt;your-token&gt;</span>" }
+    }
+  }
+}</code></pre>
+          <table class="perm-table">
+            <thead><tr><th>Tools</th><th>Scope</th></tr></thead>
+            <tbody>
+              <tr><td><code>get_stats</code>, <code>list_meetings</code>, <code>get_meeting</code>, <code>get_transcript</code>, <code>get_summary</code>, <code>list_participants</code>, <code>get_participant</code>, <code>get_participant_memory</code></td><td>any token</td></tr>
+              <tr><td><code>update_transcript</code>, <code>update_summary</code>, <code>update_participant</code>, <code>update_participant_memory</code></td><td><code>readwrite</code></td></tr>
+            </tbody>
+          </table>
 
           <h2 id="security">Token security</h2>
           <ul>

@@ -42,8 +42,14 @@ FIXED_DEFAULTS: dict[str, str] = {
     "WEB_HOST": "0.0.0.0",
     "WEB_PORT": "8080",
     "WEB_SECRET": "",
+    "MCP_ENABLED": "true",
+    "MCP_HOST": "0.0.0.0",
+    "MCP_PORT": "8081",
     "SCRIBER_DATA_DIR": "./data",
 }
+
+# Values accepted as "on" for boolean keys (MCP_ENABLED).
+_TRUE_VALUES: set[str] = {"1", "true", "yes", "on"}
 
 # Fixed keys the admin dashboard may change.
 FIXED_EDITABLE_KEYS: set[str] = {
@@ -136,6 +142,9 @@ class Config:
     web_host: str
     web_port: int
     web_secret: str
+    mcp_enabled: bool
+    mcp_host: str
+    mcp_port: int
     data_dir: pathlib.Path
 
 
@@ -219,12 +228,14 @@ class ConfigManager:
             self._persist("WEB_SECRET", generated)
             fixed["WEB_SECRET"] = generated
 
-        try:
-            web_port = int(fixed["WEB_PORT"])
-        except ValueError as exc:
-            raise ValueError(
-                f"WEB_PORT must be an integer, got {fixed['WEB_PORT']!r}"
-            ) from exc
+        ports: dict[str, int] = {}
+        for key in ("WEB_PORT", "MCP_PORT"):
+            try:
+                ports[key] = int(fixed[key])
+            except ValueError as exc:
+                raise ValueError(
+                    f"{key} must be an integer, got {fixed[key]!r}"
+                ) from exc
 
         self._fixed = fixed
         self._config = Config(
@@ -238,8 +249,11 @@ class ConfigManager:
             admin_username=fixed["ADMIN_USERNAME"],
             admin_password=fixed["ADMIN_PASSWORD"],
             web_host=fixed["WEB_HOST"],
-            web_port=web_port,
+            web_port=ports["WEB_PORT"],
             web_secret=fixed["WEB_SECRET"],
+            mcp_enabled=fixed["MCP_ENABLED"].strip().lower() in _TRUE_VALUES,
+            mcp_host=fixed["MCP_HOST"],
+            mcp_port=ports["MCP_PORT"],
             data_dir=pathlib.Path(fixed["SCRIBER_DATA_DIR"]),
         )
         return self._config
@@ -299,6 +313,9 @@ class ConfigManager:
             "WEB_HOST",
             "WEB_PORT",
             "WEB_SECRET",
+            "MCP_ENABLED",
+            "MCP_HOST",
+            "MCP_PORT",
             "SCRIBER_DATA_DIR",
         ):
             fields.append(self._display_value(key, self._fixed[key]))

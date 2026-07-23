@@ -12,7 +12,8 @@
   <a href="#discord-application-setup">Discord setup</a> ·
   <a href="#configuration">Configuration</a> ·
   <a href="#run-with-docker">Run</a> ·
-  <a href="#api">API</a>
+  <a href="#api">API</a> ·
+  <a href="#mcp-server">MCP</a>
 </p>
 
 Scriber is a **self-hostable Discord meeting-recording bot**. It joins a voice
@@ -30,6 +31,7 @@ transcripts and summaries, and change settings — all from one container.
 - 🤖 Meeting minutes via Anthropic, OpenAI, or a self-hosted model (Ollama, vLLM, LM Studio, LocalAI)
 - 📢 Automatic **recording notice** posted in the text channel so everyone knows recording started, what happens with the audio, and how to opt out (leave the channel)
 - 🖥️ Admin dashboard: stats, meeting history, transcript/summary viewer and downloads, live settings
+- 🔌 Token-authenticated REST API and an optional [MCP server](#mcp-server) so your AI assistant can browse and edit everything Scriber stores
 - 📦 Single container (Docker or Podman), all data in one `data/` directory
 
 ## How it works
@@ -179,6 +181,9 @@ anyone else.
 | `WEB_HOST` | `0.0.0.0` | no | web server bind address |
 | `WEB_PORT` | `8080` | no | web server port |
 | `WEB_SECRET` | *(empty)* | no | HMAC key for session tokens; auto-generated and persisted to `.env` if empty |
+| `MCP_ENABLED` | `true` | no | [MCP server](#mcp-server) on/off |
+| `MCP_HOST` | `0.0.0.0` | no | MCP server bind address (same rules as `WEB_HOST`) |
+| `MCP_PORT` | `8081` | no | MCP server port |
 | `SCRIBER_DATA_DIR` | `./data` | no | data directory (`/data` in the container) |
 
 ## Run with Docker
@@ -190,8 +195,13 @@ docker run -d --name scriber \
   -v ./data:/data \
   -v ./.env:/app/.env \
   -p 8080:8080 \
+  -p 127.0.0.1:8081:8081 \
   scriber
 ```
+
+Port `8081` is the optional [MCP server](#mcp-server) — published on the
+loopback only, so it stays reachable just from the machine itself. Drop that
+line if you don't use it.
 
 The `.env` bind mount lets settings changed in the dashboard persist on the
 host; the `data` mount holds the database, transcripts and Whisper models.
@@ -207,6 +217,7 @@ podman run -d --name scriber \
   -v ./data:/data:Z \
   -v ./.env:/app/.env:Z \
   -p 8080:8080 \
+  -p 127.0.0.1:8081:8081 \
   scriber
 ```
 
@@ -404,6 +415,77 @@ a write. Key endpoints (see `GET /api/v1/` for the full list):
 
 Full reference with `curl` examples: the
 **[API documentation](https://lp177.github.io/Scriber/api.html)**.
+
+## MCP server
+
+Scriber also exposes its stored data over the
+[Model Context Protocol](https://modelcontextprotocol.io), so AI assistants
+(Claude Code, Claude Desktop, Cursor, …) can browse and edit meetings,
+transcripts, summaries, participants and memories through purpose-built tools
+instead of raw HTTP calls.
+
+- **Endpoint:** streamable HTTP at `http://127.0.0.1:8081/mcp` (port
+  `MCP_PORT`, default `8081`).
+- **Enabled by default**, but only reachable where you publish its port — the
+  compose file and the run examples above bind it to `127.0.0.1`, so it stays
+  private to the machine. Set `MCP_ENABLED=false` in `.env` to switch the
+  listener off entirely.
+- **Authentication:** the same API tokens as the REST API (dashboard →
+  **Settings → API access**), sent as `Authorization: Bearer <token>`. Read
+  tools accept any token; the `update_*` tools need the `read & write` scope.
+
+Add it to Claude Code:
+
+```sh
+claude mcp add --transport http scriber http://127.0.0.1:8081/mcp \
+  --header "Authorization: Bearer <token>"
+```
+
+Or in any client that takes a JSON server config:
+
+```json
+{
+  "mcpServers": {
+    "scriber": {
+      "type": "http",
+      "url": "http://127.0.0.1:8081/mcp",
+      "headers": { "Authorization": "Bearer <token>" }
+    }
+  }
+}
+```
+
+Tools mirror the REST API: `get_stats`, `list_meetings`, `get_meeting`,
+`get_transcript`, `get_summary`, `list_participants`, `get_participant` and
+`get_participant_memory` to read; `update_transcript`, `update_summary`,
+`update_participant` and `update_participant_memory` to edit (read & write
+scope).
+
+### Tell your LLM how to use it (copy-paste)
+
+Paste this into your assistant's instructions (`CLAUDE.md`, system prompt, …):
+
+```text
+You have a "scriber" MCP server for a Discord meeting-recording bot (if MCP
+is unavailable, the same data is at https://YOUR-SCRIBER-HOST/api/v1 with
+"Authorization: Bearer <token>"). Use it to:
+- find meetings (list_meetings) and read their transcript/summary
+  (get_transcript, get_summary) when asked about past discussions;
+- read per-participant memory files (get_participant_memory) before writing
+  about people, so names and project terms stay correct;
+- update those memories (update_participant_memory) when you learn durable
+  facts about a participant — keep them short, markdown, third-person.
+```
+
+### Use Scriber memories inside Memories
+
+Scriber is a **compatible memory provider** for the
+[Memories](https://git.allkeyshop.com/lp177/memories) app: set `SCRIBER_URL`
+and `SCRIBER_TOKEN` in Memories and every participant memory appears there as
+a live folder (`scriber/<participant>/memory.md`) — browsable, editable and
+shareable from its explorer, REST API and MCP. The wire contract lives in the
+Memories README ("Compatible memory providers") and is pinned by its
+`scriber_contract` regression tests.
 
 ## Whisper model sizes
 

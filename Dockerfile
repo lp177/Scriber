@@ -25,5 +25,6 @@ COPY --from=frontend /build/dist ./frontend/dist
 ENV SCRIBER_DATA_DIR=/data \
     PYTHONUNBUFFERED=1
 VOLUME /data
-EXPOSE 8080
+# 8080 = dashboard + REST API, 8081 = optional MCP server.
+EXPOSE 8080 8081
 CMD ["python", "-m", "scriber"]

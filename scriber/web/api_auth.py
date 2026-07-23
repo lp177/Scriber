@@ -44,6 +44,26 @@ def token_prefix(token: str) -> str:
     return token[:PREFIX_LENGTH]
 
 
+def authenticate_bearer(authorization: str | None, client: str | None = None) -> dict | None:
+    """Validate an ``Authorization: Bearer <token>`` header value.
+
+    Transport-neutral core shared by the REST API dependencies below and the
+    MCP server's auth middleware. On success, records the use (timestamp and
+    client IP) and returns the token row; returns None when the header is
+    missing/malformed or the token is unknown.
+    """
+    scheme, _, token = (authorization or "").partition(" ")
+    token = token.strip()
+    if scheme.lower() != "bearer" or not token:
+        return None
+    row = database.get_api_token_by_hash(hash_token(token))
+    if row is None:
+        # constant-time-ish: we already hashed, so lookup time doesn't leak length
+        return None
+    database.touch_api_token(row["id"], client)
+    return row
+
+
 def _authenticate(request: Request) -> dict:
     """Validate the Bearer token, record its use, and return its row.
 
@@ -51,19 +71,15 @@ def _authenticate(request: Request) -> dict:
     """
     header = request.headers.get("Authorization", "")
     scheme, _, token = header.partition(" ")
-    token = token.strip()
-    if scheme.lower() != "bearer" or not token:
+    if scheme.lower() != "bearer" or not token.strip():
         raise HTTPException(
             status_code=401, detail="Not authenticated", headers=_UNAUTH_HEADERS
         )
-    row = database.get_api_token_by_hash(hash_token(token))
+    row = authenticate_bearer(header, request.client.host if request.client else None)
     if row is None:
-        # constant-time-ish: we already hashed, so lookup time doesn't leak length
         raise HTTPException(
             status_code=401, detail="Invalid API token", headers=_UNAUTH_HEADERS
         )
-    client = request.client.host if request.client else None
-    database.touch_api_token(row["id"], client)
     return row
 
 

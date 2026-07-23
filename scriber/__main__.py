@@ -52,10 +52,59 @@ def main() -> None:
 
     app = create_app(bot=bot)
 
+    # The MCP server is optional twice over: MCP_ENABLED can switch it off, and
+    # a missing `mcp` package (it is imported lazily here) must degrade to a
+    # warning — never stop the bot or the dashboard from starting.
+    mcp_app = None
+    if cfg.mcp_enabled:
+        try:
+            from scriber.web.mcp_server import create_mcp_app
+        except ImportError:
+            log.warning(
+                "MCP server is enabled but the 'mcp' package is not installed; "
+                "run 'pip install -r requirements.txt' to add it. Continuing without it."
+            )
+        else:
+            try:
+                mcp_app = create_mcp_app(bot=bot)
+            except Exception:
+                log.exception("Failed to build the MCP server; continuing without it.")
+
     async def run() -> None:
         server = uvicorn.Server(
             uvicorn.Config(app, host=cfg.web_host, port=cfg.web_port, log_level="info")
         )
+        mcp_http: uvicorn.Server | None = None
+        if mcp_app is not None:
+            mcp_http = uvicorn.Server(
+                uvicorn.Config(
+                    mcp_app,
+                    host=cfg.mcp_host,
+                    port=cfg.mcp_port,
+                    log_level="info",
+                    lifespan="on",
+                )
+            )
+            # Only the dashboard's uvicorn installs signal handlers (the last
+            # install would win and steal SIGINT/SIGTERM from the dashboard);
+            # run_web below shuts the MCP listener down when the dashboard exits.
+            mcp_http.install_signal_handlers = lambda: None  # type: ignore[method-assign]
+
+        async def run_web() -> None:
+            await server.serve()
+            # serve() returning means uvicorn caught SIGINT/SIGTERM and shut the
+            # dashboard down — stop the MCP listener too so gather() can finish.
+            if mcp_http is not None:
+                mcp_http.should_exit = True
+
+        async def run_mcp() -> None:
+            # Same rule as the bot: an MCP failure (port already in use, crash)
+            # must never take the dashboard down. uvicorn raises SystemExit on a
+            # failed bind, so plain `except Exception` would not be enough.
+            try:
+                await mcp_http.serve()
+            except (Exception, SystemExit):
+                log.exception("MCP server stopped; bot and web dashboard stay available.")
 
         async def run_bot() -> None:
             # A bot failure (bad token, lost gateway, refused sync…) must not
@@ -69,7 +118,9 @@ def main() -> None:
                     f"The Discord bot stopped due to an error: {exc}"
                 )
 
-        tasks = [server.serve()]
+        tasks = [run_web()]
+        if mcp_http is not None:
+            tasks.append(run_mcp())
         if bot is not None:
             tasks.append(run_bot())
         await asyncio.gather(*tasks)
