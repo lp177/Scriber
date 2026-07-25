@@ -196,6 +196,20 @@ def create_mcp_app(bot: Any | None = None) -> Any:
         return _read_meeting_file(meeting_id, "summary_path", "summary")
 
     @server.tool()
+    def list_transcript_versions(meeting_id: str) -> dict[str, Any]:
+        """A meeting's transcript versions: the original live transcript (id 'original') plus any versions regenerated from the kept meeting audio with a different engine (Whisper profiles, Voxtral, ElevenLabs Scribe, Google Chirp). Also reports whether regeneration is currently possible and any running regeneration job."""
+        return _call(dash._transcript_versions, meeting_id)
+
+    @server.tool()
+    def get_transcript_version(meeting_id: str, transcript_id: str) -> str:
+        """The text of one transcript version. Use transcript_id 'original' for the live transcript, or an id from list_transcript_versions for a regenerated one."""
+        path = _call(dash._resolve_transcript_version, meeting_id, transcript_id)
+        try:
+            return path.read_text(encoding="utf-8")
+        except OSError as exc:
+            raise ToolError("Failed to read the transcript version file") from exc
+
+    @server.tool()
     def list_participants(limit: int = 50, offset: int = 0) -> dict[str, Any]:
         """List everyone who attended at least one recorded meeting, most recent session first, paginated (returns total plus items). Participants are keyed by their stable Discord user id."""
         total, rows = database.list_users(limit=limit, offset=offset)

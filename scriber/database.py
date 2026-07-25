@@ -31,6 +31,7 @@ _COLUMNS: tuple[str, ...] = (
     "status",
     "transcript_path",
     "summary_path",
+    "audio_path",
     "log",
     "segment_count",
     "word_count",
@@ -54,6 +55,7 @@ CREATE TABLE IF NOT EXISTS meetings (
     status TEXT,
     transcript_path TEXT,
     summary_path TEXT,
+    audio_path TEXT,
     log TEXT DEFAULT '',
     segment_count INTEGER DEFAULT 0,
     word_count INTEGER DEFAULT 0,
@@ -80,6 +82,20 @@ CREATE TABLE IF NOT EXISTS meeting_participants (
     user_id TEXT NOT NULL,
     display_name TEXT NOT NULL,
     PRIMARY KEY (meeting_id, user_id)
+)
+"""
+
+# Alternate transcript versions regenerated from the saved meeting audio with a
+# different engine/model. The ORIGINAL live transcript stays on
+# ``meetings.transcript_path`` — rows here are additional versions.
+_TRANSCRIPTS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS meeting_transcripts (
+    id TEXT PRIMARY KEY,
+    meeting_id TEXT NOT NULL,
+    engine TEXT NOT NULL,
+    label TEXT NOT NULL,
+    path TEXT NOT NULL,
+    created_at TEXT NOT NULL
 )
 """
 
@@ -124,6 +140,7 @@ def init(db_path: pathlib.Path) -> None:
         _conn.execute(_SCHEMA)
         _conn.execute(_USERS_SCHEMA)
         _conn.execute(_PARTICIPANTS_SCHEMA)
+        _conn.execute(_TRANSCRIPTS_SCHEMA)
         _conn.execute(_API_TOKENS_SCHEMA)
         _migrate(_conn)
         _conn.commit()
@@ -136,6 +153,9 @@ def _migrate(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE users ADD COLUMN avatar_source TEXT")
     if "discord_avatar_key" not in user_cols:
         conn.execute("ALTER TABLE users ADD COLUMN discord_avatar_key TEXT")
+    meeting_cols = {row["name"] for row in conn.execute("PRAGMA table_info(meetings)")}
+    if "audio_path" not in meeting_cols:
+        conn.execute("ALTER TABLE meetings ADD COLUMN audio_path TEXT")
 
 
 def close() -> None:
@@ -215,14 +235,105 @@ def list_meetings(limit: int = 50, offset: int = 0) -> tuple[int, list[dict]]:
 
 
 def delete_meeting(meeting_id: str) -> None:
-    """Delete a meeting row and its associated participant rows."""
+    """Delete a meeting row and its associated participant/transcript rows."""
     with _lock:
         conn = _require_conn()
         conn.execute(
             "DELETE FROM meeting_participants WHERE meeting_id = ?", (meeting_id,)
         )
+        conn.execute(
+            "DELETE FROM meeting_transcripts WHERE meeting_id = ?", (meeting_id,)
+        )
         conn.execute("DELETE FROM meetings WHERE id = ?", (meeting_id,))
         conn.commit()
+
+
+def list_meeting_ids_by_status(status: str) -> list[str]:
+    """Return the ids of every meeting currently in the given status."""
+    with _lock:
+        conn = _require_conn()
+        rows = conn.execute(
+            "SELECT id FROM meetings WHERE status = ?", (status,)
+        ).fetchall()
+    return [row["id"] for row in rows]
+
+
+def list_expired_audio(cutoff_iso: str) -> list[dict]:
+    """Return meetings whose kept audio ended before ``cutoff_iso`` (retention)."""
+    with _lock:
+        conn = _require_conn()
+        rows = conn.execute(
+            """
+            SELECT id, audio_path, ended_at
+            FROM meetings
+            WHERE audio_path IS NOT NULL AND ended_at IS NOT NULL AND ended_at < ?
+            """,
+            (cutoff_iso,),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+# ---------------------------------------------------------------------------
+# Alternate transcript versions (regenerated from the saved meeting audio)
+# ---------------------------------------------------------------------------
+
+
+def create_transcript(
+    transcript_id: str, meeting_id: str, engine: str, label: str, path: str
+) -> dict:
+    """Insert an alternate transcript version row and return it."""
+    now = _utcnow()
+    with _lock:
+        conn = _require_conn()
+        conn.execute(
+            "INSERT INTO meeting_transcripts (id, meeting_id, engine, label, path, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (transcript_id, meeting_id, engine, label, path, now),
+        )
+        conn.commit()
+    return {
+        "id": transcript_id,
+        "meeting_id": meeting_id,
+        "engine": engine,
+        "label": label,
+        "path": path,
+        "created_at": now,
+    }
+
+
+def list_transcripts(meeting_id: str) -> list[dict]:
+    """Return a meeting's alternate transcript versions, oldest first."""
+    with _lock:
+        conn = _require_conn()
+        rows = conn.execute(
+            "SELECT * FROM meeting_transcripts WHERE meeting_id = ? "
+            "ORDER BY created_at ASC, id ASC",
+            (meeting_id,),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def get_transcript(meeting_id: str, transcript_id: str) -> dict | None:
+    """Return one alternate transcript version row, or None."""
+    with _lock:
+        conn = _require_conn()
+        row = conn.execute(
+            "SELECT * FROM meeting_transcripts WHERE id = ? AND meeting_id = ?",
+            (transcript_id, meeting_id),
+        ).fetchone()
+    return dict(row) if row is not None else None
+
+
+def delete_transcript(meeting_id: str, transcript_id: str) -> bool:
+    """Delete an alternate transcript version row; True if a row was removed."""
+    with _lock:
+        conn = _require_conn()
+        cur = conn.execute(
+            "DELETE FROM meeting_transcripts WHERE id = ? AND meeting_id = ?",
+            (transcript_id, meeting_id),
+        )
+        conn.commit()
+        return cur.rowcount > 0
 
 
 def get_stats() -> dict:

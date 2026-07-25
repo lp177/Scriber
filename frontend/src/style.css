@@ -569,6 +569,7 @@ label {
    ripple.js sets --ripple-x on pointer-down so the underline grows from there. */
 input[type="text"],
 input[type="password"],
+input[type="number"],
 .field-textarea,
 .token-value,
 select,
@@ -592,6 +593,7 @@ select,
 
 input[type="text"]:hover,
 input[type="password"]:hover,
+input[type="number"]:hover,
 .field-textarea:hover,
 select:hover,
 .token-select:hover {
@@ -601,6 +603,7 @@ select:hover,
 
 input[type="text"]:focus,
 input[type="password"]:focus,
+input[type="number"]:focus,
 .field-textarea:focus,
 .token-value:focus,
 select:focus,
@@ -1314,6 +1317,314 @@ tr.clickable {
 .danger-btn:hover {
   background: var(--red);
   color: #1a0606;
+}
+
+/* ---------- Material switch ---------- */
+
+.switch-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.switch {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 40px;
+  padding: 4px 0;
+  margin: 0;
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--text);
+}
+
+.switch input {
+  position: absolute;
+  opacity: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  cursor: pointer;
+}
+
+.switch-track {
+  flex: none;
+  width: 36px;
+  height: 14px;
+  border-radius: 999px;
+  background: var(--surface-3);
+  transition: background-color 0.2s ease;
+}
+
+.switch-thumb {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #aeb4bf;
+  box-shadow: var(--elev-2);
+  transform: translate(-2px, -50%);
+  transition: transform 0.2s ease, background-color 0.2s ease;
+}
+
+.switch input:checked ~ .switch-track {
+  background: rgba(45, 212, 191, 0.45);
+}
+
+.switch input:checked ~ .switch-thumb {
+  background: var(--primary);
+  transform: translate(18px, -50%);
+}
+
+.switch input:focus-visible ~ .switch-thumb {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.switch input:disabled ~ .switch-track,
+.switch input:disabled ~ .switch-thumb,
+.switch input:disabled ~ .switch-label {
+  opacity: 0.5;
+}
+
+.switch-label {
+  margin-left: 8px;
+}
+
+/* ---------- Info tip (ⓘ help button + tooltip bubble) ---------- */
+
+.info-tip {
+  position: relative;
+  display: inline-flex;
+}
+
+.info-tip-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+.info-tip-btn:hover,
+.info-tip-btn[aria-expanded="true"] {
+  background: var(--surface-2);
+  color: var(--primary);
+}
+
+.info-tip-pop {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 30;
+  width: max-content;
+  max-width: min(300px, 78vw);
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-3);
+  color: var(--text);
+  font-size: 12.5px;
+  font-weight: 400;
+  line-height: 1.5;
+  box-shadow: var(--elev-4);
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.15s ease, visibility 0.15s ease;
+}
+
+.info-tip-pop.open {
+  opacity: 1;
+  visibility: visible;
+}
+
+/* Keep the bubble on-screen when the tip sits near the page edge. */
+@media (max-width: 560px) {
+  .info-tip-pop {
+    left: auto;
+    right: -8px;
+    transform: none;
+  }
+}
+
+/* ---------- Meeting audio ---------- */
+
+.audio-player {
+  width: 100%;
+  margin-top: 4px;
+}
+
+.audio-hint {
+  margin: 8px 0 0;
+}
+
+/* ---------- Transcript versions ---------- */
+
+.version-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.version-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 10px 14px;
+  background: var(--surface-2);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--elev-1);
+}
+
+.version-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.version-title {
+  font-weight: 600;
+}
+
+.version-sub {
+  font-size: 12.5px;
+  color: var(--text-muted);
+}
+
+.version-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.regen-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 14px;
+}
+
+.regen-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 150px;
+  flex: 1;
+}
+
+.regen-field label {
+  margin-bottom: 0;
+}
+
+.regen-progress {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.progress-track {
+  flex: 1;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--surface-3);
+  overflow: hidden;
+}
+
+.progress-bar {
+  height: 100%;
+  background: var(--primary);
+  border-radius: 999px;
+  transition: width 0.4s ease;
+  min-width: 4px;
+}
+
+.progress-bar.indeterminate {
+  width: 30% !important;
+  animation: progress-slide 1.2s ease-in-out infinite alternate;
+}
+
+@keyframes progress-slide {
+  from {
+    margin-left: 0;
+  }
+  to {
+    margin-left: 70%;
+  }
+}
+
+/* ---------- Transcript compare view ---------- */
+
+.compare-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  align-items: stretch;
+}
+
+.compare-pane {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  background: var(--surface);
+  border-radius: var(--radius);
+  box-shadow: var(--elev-1);
+}
+
+.compare-pane-head {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.compare-select {
+  width: 100%;
+  min-height: 40px;
+  padding: 8px 34px 8px 12px;
+  font-size: 13.5px;
+}
+
+.compare-body {
+  flex: 1;
+  margin: 0;
+  padding: 12px 14px;
+  background: var(--bg);
+  border-radius: 0 0 var(--radius) var(--radius);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  overflow-y: auto;
+  max-height: 70vh;
+  font-family: ui-monospace, "Cascadia Mono", "SF Mono", Menlo, Consolas, monospace;
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+
+@media (max-width: 860px) {
+  .compare-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .compare-body {
+    max-height: 45vh;
+  }
 }
 
 /* ---------- Meeting detail ---------- */

@@ -9,9 +9,10 @@ RUN npm run build
 
 # --- Stage 2: Python runtime ---
 FROM python:3.12-slim
-# libopus0 is required by discord.py voice support.
+# libopus0 is required by discord.py voice support; ffmpeg encodes the kept
+# meeting audio to Opus (without it Scriber falls back to large WAV files).
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends libopus0 \
+    && apt-get install -y --no-install-recommends libopus0 ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY requirements.txt ./

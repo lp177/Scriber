@@ -33,10 +33,23 @@ log = logging.getLogger(__name__)
 FIXED_DEFAULTS: dict[str, str] = {
     "DISCORD_TOKEN": "",
     "DISCORD_GUILD_ID": "",
+    "TRANSCRIBE_ENGINE": "whisper",
     "WHISPER_MODEL": "base",
     "WHISPER_LANGUAGE": "auto",
     "WHISPER_DEVICE": "cpu",
     "WHISPER_COMPUTE_TYPE": "int8",
+    "AUDIO_KEEP": "true",
+    "AUDIO_RETENTION_DAYS": "30",
+    "VOXTRAL_API_KEY": "",
+    "VOXTRAL_MODEL": "voxtral-mini-latest",
+    "VOXTRAL_BASE_URL": "https://api.mistral.ai",
+    "ELEVENLABS_API_KEY": "",
+    "ELEVENLABS_MODEL": "scribe_v2",
+    "ELEVENLABS_BASE_URL": "https://api.elevenlabs.io",
+    "GOOGLE_SPEECH_API_KEY": "",
+    "GOOGLE_SPEECH_PROJECT": "",
+    "GOOGLE_SPEECH_LOCATION": "eu",
+    "GOOGLE_SPEECH_MODEL": "chirp_3",
     "ADMIN_USERNAME": "admin",
     "ADMIN_PASSWORD": "change-me",
     "WEB_HOST": "0.0.0.0",
@@ -53,8 +66,21 @@ _TRUE_VALUES: set[str] = {"1", "true", "yes", "on"}
 
 # Fixed keys the admin dashboard may change.
 FIXED_EDITABLE_KEYS: set[str] = {
+    "TRANSCRIBE_ENGINE",
     "WHISPER_MODEL",
     "WHISPER_LANGUAGE",
+    "AUDIO_KEEP",
+    "AUDIO_RETENTION_DAYS",
+    "VOXTRAL_API_KEY",
+    "VOXTRAL_MODEL",
+    "VOXTRAL_BASE_URL",
+    "ELEVENLABS_API_KEY",
+    "ELEVENLABS_MODEL",
+    "ELEVENLABS_BASE_URL",
+    "GOOGLE_SPEECH_API_KEY",
+    "GOOGLE_SPEECH_PROJECT",
+    "GOOGLE_SPEECH_LOCATION",
+    "GOOGLE_SPEECH_MODEL",
     "ADMIN_USERNAME",
     "ADMIN_PASSWORD",
 }
@@ -64,6 +90,9 @@ FIXED_SECRET_KEYS: set[str] = {
     "DISCORD_TOKEN",
     "ADMIN_PASSWORD",
     "WEB_SECRET",
+    "VOXTRAL_API_KEY",
+    "ELEVENLABS_API_KEY",
+    "GOOGLE_SPEECH_API_KEY",
 }
 
 # The four suffixes that make up one summary provider block.
@@ -127,16 +156,42 @@ class ProviderConfig:
 
 
 @dataclasses.dataclass
+class SttProviderConfig:
+    """Settings for one cloud speech-to-text provider (transcript regeneration)."""
+
+    kind: str  # "voxtral" | "elevenlabs" | "google"
+    api_key: str
+    model: str
+    base_url: str = ""
+    project: str = ""
+    location: str = ""
+
+    @property
+    def ready(self) -> bool:
+        """True when enough is configured for the provider to be usable."""
+        if self.kind == "google":
+            return bool(self.api_key and self.project)
+        return bool(self.api_key)
+
+
+@dataclasses.dataclass
 class Config:
     """Immutable snapshot of the resolved configuration."""
 
     discord_token: str
     discord_guild_id: str
     summary_providers: list[ProviderConfig]
+    #: Engine transcribing meetings live: "whisper" (local) or a cloud engine
+    #: id ("voxtral" | "elevenlabs" | "google"). Cloud engines fall back to
+    #: local Whisper when unconfigured or failing.
+    transcribe_engine: str
     whisper_model: str
     whisper_language: str
     whisper_device: str
     whisper_compute_type: str
+    audio_keep: bool
+    audio_retention_days: int
+    stt_providers: dict[str, SttProviderConfig]
     admin_username: str
     admin_password: str
     web_host: str
@@ -237,15 +292,50 @@ class ConfigManager:
                     f"{key} must be an integer, got {fixed[key]!r}"
                 ) from exc
 
+        # Retention parses leniently (the key is dashboard-editable, and a bad
+        # value must not brick the whole config reload): fall back to 30 days.
+        try:
+            retention_days = max(0, int(fixed["AUDIO_RETENTION_DAYS"]))
+        except ValueError:
+            log.warning(
+                "AUDIO_RETENTION_DAYS must be an integer, got %r; using 30.",
+                fixed["AUDIO_RETENTION_DAYS"],
+            )
+            retention_days = 30
+
         self._fixed = fixed
         self._config = Config(
             discord_token=fixed["DISCORD_TOKEN"],
             discord_guild_id=fixed["DISCORD_GUILD_ID"],
             summary_providers=self._parse_providers(sources),
+            transcribe_engine=fixed["TRANSCRIBE_ENGINE"].strip().lower() or "whisper",
             whisper_model=fixed["WHISPER_MODEL"],
             whisper_language=fixed["WHISPER_LANGUAGE"],
             whisper_device=fixed["WHISPER_DEVICE"],
             whisper_compute_type=fixed["WHISPER_COMPUTE_TYPE"],
+            audio_keep=fixed["AUDIO_KEEP"].strip().lower() in _TRUE_VALUES,
+            audio_retention_days=retention_days,
+            stt_providers={
+                "voxtral": SttProviderConfig(
+                    kind="voxtral",
+                    api_key=fixed["VOXTRAL_API_KEY"],
+                    model=fixed["VOXTRAL_MODEL"].strip(),
+                    base_url=fixed["VOXTRAL_BASE_URL"].strip(),
+                ),
+                "elevenlabs": SttProviderConfig(
+                    kind="elevenlabs",
+                    api_key=fixed["ELEVENLABS_API_KEY"],
+                    model=fixed["ELEVENLABS_MODEL"].strip(),
+                    base_url=fixed["ELEVENLABS_BASE_URL"].strip(),
+                ),
+                "google": SttProviderConfig(
+                    kind="google",
+                    api_key=fixed["GOOGLE_SPEECH_API_KEY"],
+                    model=fixed["GOOGLE_SPEECH_MODEL"].strip(),
+                    project=fixed["GOOGLE_SPEECH_PROJECT"].strip(),
+                    location=fixed["GOOGLE_SPEECH_LOCATION"].strip() or "eu",
+                ),
+            },
             admin_username=fixed["ADMIN_USERNAME"],
             admin_password=fixed["ADMIN_PASSWORD"],
             web_host=fixed["WEB_HOST"],
@@ -304,10 +394,23 @@ class ConfigManager:
                 self._display_value(f"SUMMARY_BASE_URL_{provider.index}", provider.base_url)
             )
         for key in (
+            "TRANSCRIBE_ENGINE",
             "WHISPER_MODEL",
             "WHISPER_LANGUAGE",
             "WHISPER_DEVICE",
             "WHISPER_COMPUTE_TYPE",
+            "AUDIO_KEEP",
+            "AUDIO_RETENTION_DAYS",
+            "VOXTRAL_API_KEY",
+            "VOXTRAL_MODEL",
+            "VOXTRAL_BASE_URL",
+            "ELEVENLABS_API_KEY",
+            "ELEVENLABS_MODEL",
+            "ELEVENLABS_BASE_URL",
+            "GOOGLE_SPEECH_API_KEY",
+            "GOOGLE_SPEECH_PROJECT",
+            "GOOGLE_SPEECH_LOCATION",
+            "GOOGLE_SPEECH_MODEL",
             "ADMIN_USERNAME",
             "ADMIN_PASSWORD",
             "WEB_HOST",

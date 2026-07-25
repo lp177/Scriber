@@ -14,6 +14,7 @@ from discord import app_commands
 from scriber import config, database
 from scriber.bot.session import MeetingSession
 from scriber.summary.summarizer import SummaryError
+from scriber.transcription import live
 from scriber.transcription.whisper_engine import normalize_language
 
 if TYPE_CHECKING:
@@ -228,7 +229,7 @@ class ScribCommands(app_commands.Group):
             text_channel=interaction.channel,
             voice_channel=voice_state.channel,
             started_by=member,
-            whisper=self.bot.whisper,
+            transcriber=self.bot.transcriber,
             summarizer=self.bot.summarizer,
             language=language,
         )
@@ -259,10 +260,25 @@ class ScribCommands(app_commands.Group):
         failover_note = (
             " Providers are tried in this order until one succeeds." if len(targets) > 1 else ""
         )
+        # Announce honestly where the speech goes: local Whisper keeps audio on
+        # this server; a cloud engine means speech segments are sent to that
+        # service during the meeting.
+        engine = live.effective_engine(cfg)
+        if engine == "whisper":
+            transcription_clause = (
+                f"The conversation is transcribed locally on this server (Whisper, model "
+                f"`{cfg.whisper_model}`, language `{lang_label}`)."
+            )
+        else:
+            provider = cfg.stt_providers[engine]
+            transcription_clause = (
+                f"The conversation is transcribed by **{live.ENGINE_LABELS[engine]}** "
+                f"(model `{provider.model}`, language `{lang_label}`) — speech audio is "
+                f"sent to that service while the meeting runs."
+            )
         notice = (
             f"🔴 **Recording notice** — Scriber joined **{voice_name}** and is now recording. "
-            f"The conversation is transcribed locally on this server (Whisper, model "
-            f"`{cfg.whisper_model}`, language `{lang_label}`). When the meeting ends, the full "
+            f"{transcription_clause} When the meeting ends, the full "
             f"transcript will be sent to an external AI service for summarization: "
             f"**{self.bot.summarizer.display_target()}**.{failover_note} If you do not wish to be "
             f"recorded, please leave the voice channel now. Use `/scriber stop` to finish and get "
@@ -449,15 +465,24 @@ class ScribCommands(app_commands.Group):
                 "This command can only be used inside a server.", ephemeral=True
             )
             return
-        session = self.bot.active_sessions.get(guild.id)
-        if session is None:
+        if guild.id not in self.bot.active_sessions:
             await interaction.response.send_message(
                 "There is no active recording session in this server.", ephemeral=True
             )
             return
 
         await interaction.response.defer()
-        self.bot.active_sessions.pop(guild.id, None)
+        # Claim the session atomically AFTER the defer round-trip: an auto-stop
+        # can finalize it during that await, and cancelling a session that
+        # stop() is concurrently finalizing would race the audio archive
+        # (finalize vs discard) and leave status/files timing-dependent.
+        session = self.bot.active_sessions.pop(guild.id, None)
+        if session is None:
+            with contextlib.suppress(discord.HTTPException):
+                await interaction.followup.send(
+                    "The recording was just stopped by another action.", ephemeral=True
+                )
+            return
         self._cancel_monitor(guild.id)
         try:
             await session.cancel()

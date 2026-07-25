@@ -32,7 +32,10 @@ async def index(token: dict = Depends(require_api_token)) -> dict[str, Any]:
             "GET  /api/v1/meetings",
             "GET  /api/v1/meetings/{id}",
             "GET  /api/v1/meetings/{id}/transcript",
+            "GET  /api/v1/meetings/{id}/transcripts",
+            "GET  /api/v1/meetings/{id}/transcripts/{tid}",
             "GET  /api/v1/meetings/{id}/summary",
+            "GET  /api/v1/meetings/{id}/audio",
             "GET  /api/v1/participants",
             "GET  /api/v1/participants/{id}",
             "GET  /api/v1/participants/{id}/memory",
@@ -104,6 +107,31 @@ async def summary(
     return dash._serve_meeting_file(
         meeting_id, "summary_path", media_type="text/markdown", download=bool(download)
     )
+
+
+@router.get("/meetings/{meeting_id}/audio")
+async def meeting_audio(
+    meeting_id: str, download: int = 0, _t: dict = Depends(require_api_token)
+) -> Response:
+    """Serve the meeting's kept audio file (or a download with ``download=1``)."""
+    return dash._serve_meeting_audio(meeting_id, download=bool(download))
+
+
+@router.get("/meetings/{meeting_id}/transcripts")
+async def transcript_versions(
+    meeting_id: str, _t: dict = Depends(require_api_token)
+) -> dict[str, Any]:
+    """List the meeting's transcript versions (original + regenerated)."""
+    return dash._transcript_versions(meeting_id)
+
+
+@router.get("/meetings/{meeting_id}/transcripts/{transcript_id}")
+async def transcript_version(
+    meeting_id: str, transcript_id: str, download: int = 0,
+    _t: dict = Depends(require_api_token),
+) -> Response:
+    """Serve one transcript version (``original`` or a generated version id)."""
+    return dash._serve_transcript_version(meeting_id, transcript_id, download=bool(download))
 
 
 @router.get("/participants")

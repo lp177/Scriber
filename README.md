@@ -27,9 +27,11 @@ transcripts and summaries, and change settings — all from one container.
 ## Features
 
 - 🔴 One-command recording: `/scriber start`, `/scriber stop`, `/scriber cancel`
-- 🗣️ Per-speaker transcription with timestamps, done **locally** (faster-whisper)
+- 🗣️ Per-speaker transcription with timestamps — **locally** (faster-whisper, the default) or via a cloud STT engine (Mistral **Voxtral**, **ElevenLabs Scribe**, **Google Chirp**) with automatic fallback to local Whisper
 - 🤖 Meeting minutes via Anthropic, OpenAI, or a self-hosted model (Ollama, vLLM, LM Studio, LocalAI)
 - 📢 Automatic **recording notice** posted in the text channel so everyone knows recording started, what happens with the audio, and how to opt out (leave the channel)
+- 🎧 Optional **meeting audio keeping** (on by default): play or download each meeting's recording from the dashboard, with an automatic expiration you control (default 30 days, `0` = keep forever)
+- 🔁 **Transcript regeneration**: re-transcribe the saved audio with another engine — any local Whisper profile (`tiny` … `large-v3`, `turbo`), Mistral **Voxtral**, **ElevenLabs Scribe**, or **Google Chirp** — and compare any two versions side by side
 - 🖥️ Admin dashboard: stats, meeting history, transcript/summary viewer and downloads, live settings
 - 🔌 Token-authenticated REST API and an optional [MCP server](#mcp-server) so your AI assistant can browse and edit everything Scriber stores
 - 📦 Single container (Docker or Podman), all data in one `data/` directory
@@ -39,7 +41,9 @@ transcripts and summaries, and change settings — all from one container.
 1. **`/scriber start`** — you must be in a voice channel. Scriber joins it, starts
    recording, and posts a recording notice in the text channel where you
    invoked the command. Audio is segmented per speaker and transcribed
-   locally while the meeting is running.
+   while the meeting is running — locally with Whisper by default, or by the
+   cloud engine you picked with `TRANSCRIBE_ENGINE` (the notice says which,
+   and the bot falls back to local Whisper if the cloud API fails).
 2. **`/scriber stop`** — Scriber leaves the channel, finishes transcribing the
    remaining audio, writes the transcript to disk, sends it to the configured
    summary provider, and posts the resulting Markdown minutes in the text
@@ -172,10 +176,23 @@ anyone else.
 | `SUMMARY_API_KEY_<n>` | *(empty)* | yes | API key for provider *n* |
 | `SUMMARY_MODEL_<n>` | `claude-opus-4-8` (as `_1`) | yes | model ID for provider *n* |
 | `SUMMARY_BASE_URL_<n>` | `https://api.anthropic.com` (as `_1`) | yes | base URL for provider *n* |
+| `TRANSCRIBE_ENGINE` | `whisper` | yes | live transcription engine: `whisper` (local) \| `voxtral` \| `elevenlabs` \| `google` (cloud engines fall back to local Whisper on failure) |
 | `WHISPER_MODEL` | `base` | yes | tiny/base/small/medium/large-v3… |
 | `WHISPER_LANGUAGE` | `en` | yes | default language code or `auto` (overridable per meeting — see below) |
 | `WHISPER_DEVICE` | `cpu` | no | cpu/cuda |
 | `WHISPER_COMPUTE_TYPE` | `int8` | no | int8/float16/… |
+| `AUDIO_KEEP` | `true` | yes | keep each meeting's audio (play/download + [transcript regeneration](#meeting-audio--transcript-regeneration)) |
+| `AUDIO_RETENTION_DAYS` | `30` | yes | days before kept audio is auto-deleted; `0` = never expire |
+| `VOXTRAL_API_KEY` | *(empty)* | yes | Mistral API key — unlocks the Voxtral regeneration engine |
+| `VOXTRAL_MODEL` | `voxtral-mini-latest` | yes | Voxtral model ID |
+| `VOXTRAL_BASE_URL` | `https://api.mistral.ai` | yes | Mistral API base URL |
+| `ELEVENLABS_API_KEY` | *(empty)* | yes | ElevenLabs API key — unlocks the Scribe regeneration engine |
+| `ELEVENLABS_MODEL` | `scribe_v2` | yes | ElevenLabs speech-to-text model ID |
+| `ELEVENLABS_BASE_URL` | `https://api.elevenlabs.io` | yes | ElevenLabs API base URL |
+| `GOOGLE_SPEECH_API_KEY` | *(empty)* | yes | Google Cloud API key — unlocks the Chirp regeneration engine |
+| `GOOGLE_SPEECH_PROJECT` | *(empty)* | yes | Google Cloud project ID (required with the API key) |
+| `GOOGLE_SPEECH_LOCATION` | `eu` | yes | Speech-to-Text v2 region (`eu`, `us`, `global`, …) |
+| `GOOGLE_SPEECH_MODEL` | `chirp_3` | yes | Google speech model ID |
 | `ADMIN_USERNAME` | `admin` | yes | dashboard login |
 | `ADMIN_PASSWORD` | `change-me` | yes | dashboard password |
 | `WEB_HOST` | `0.0.0.0` | no | web server bind address |
@@ -364,17 +381,61 @@ Open <http://localhost:8080> and sign in with `ADMIN_USERNAME` /
 - **Dashboard** — stat cards (total meetings, completed, total duration,
   words transcribed, live active sessions, errors), a "meetings per day"
   chart for the last 30 days, and the meetings table. From each row you can
-  view or download the transcript and the summary, inspect the meeting's
-  processing log, and delete meetings (files and database row).
+  view or download the transcript and the summary, download the kept meeting
+  audio, inspect the meeting's processing log, and delete meetings (files and
+  database row).
+- **Meeting page** — play or download the meeting audio, edit the transcript
+  and summary, regenerate the transcript with another engine, and compare any
+  two transcript versions side by side (see
+  [Meeting audio & transcript regeneration](#meeting-audio--transcript-regeneration)).
 - **Settings** (⚙️) — edit the dashboard-editable configuration keys: the
   summary provider failover list (provider kind, API key, model and base URL
   for each, plus a **+ Add provider** button to extend the chain), the Whisper
-  model and default language, and the admin credentials. Secret values are
+  model and default language, meeting audio keeping and its expiration, the
+  transcription engine API keys, and the admin credentials. Secret values are
   masked; changes are written back to `.env` and take effect immediately for
   the next meeting.
 - `GET /api/health` is available without authentication for monitoring and
   returns the bot connection status plus a short `notice` when the bot needs
   attention (used to warn on the login page before you sign in).
+
+## Meeting audio & transcript regeneration
+
+With `AUDIO_KEEP` enabled (the default), Scriber stores each meeting's audio
+under `data/audio/`:
+
+- a **playable mix** (`<meeting-id>.ogg`) — every speaker placed at their real
+  time offset, playable and downloadable from the dashboard (meeting page and
+  meetings table);
+- a compact **segment track + index** (`<meeting-id>.segments.ogg` /
+  `.segments.json`) — the raw per-speaker speech segments, which is what makes
+  regeneration below possible while keeping speaker attribution.
+
+Audio **expires automatically** after `AUDIO_RETENTION_DAYS` days (default 30;
+`0` disables expiration entirely — audio is kept forever). Only audio expires:
+transcripts and summaries are always kept. Encoding uses **ffmpeg** (bundled
+in the container image); when ffmpeg is missing, Scriber falls back to
+uncompressed WAV files, which work the same but are much larger.
+
+### Regenerating a transcript with another engine
+
+On a meeting's page (when its audio is kept), pick an engine + model and hit
+**Regenerate transcript**. The archived segments are re-transcribed and the
+result is stored as a **new transcript version** next to the original — the
+original live transcript is never overwritten. Available engines:
+
+| Engine | Runs | Needs |
+| --- | --- | --- |
+| **Whisper (local)** | on your machine | nothing — pick any profile: `tiny`, `base`, `small`, `medium`, `large-v3`, `large-v3-turbo`, `distil-large-v3`, … |
+| **Voxtral** (Mistral AI) | cloud | `VOXTRAL_API_KEY` |
+| **ElevenLabs Scribe** | cloud | `ELEVENLABS_API_KEY` |
+| **Google Chirp** (Speech-to-Text v2) | cloud | `GOOGLE_SPEECH_API_KEY` + `GOOGLE_SPEECH_PROJECT` |
+
+Cloud keys are configured in **Settings** (or `.env`) and audio segments are
+only sent to a cloud engine when you explicitly regenerate with it. Once a
+meeting has two or more versions, **Compare side by side** opens a split view
+with a version picker above each pane — handy for judging which engine/model
+transcribes your meetings best.
 
 ## API
 
@@ -403,7 +464,10 @@ a write. Key endpoints (see `GET /api/v1/` for the full list):
 | `GET /api/v1/meetings` | read | Paginated meeting list |
 | `GET /api/v1/meetings/{id}` | read | One meeting incl. log |
 | `GET /api/v1/meetings/{id}/transcript` | read | Transcript text |
+| `GET /api/v1/meetings/{id}/transcripts` | read | Transcript versions (original + regenerated) |
+| `GET /api/v1/meetings/{id}/transcripts/{tid}` | read | One version's text (`tid` = `original` or a version id) |
 | `GET /api/v1/meetings/{id}/summary` | read | Summary Markdown |
+| `GET /api/v1/meetings/{id}/audio` | read | Kept meeting audio (Ogg/Opus, `?download=1` for attachment) |
 | `GET /api/v1/participants` | read | Paginated participant list |
 | `GET /api/v1/participants/{id}` | read | Participant + memory + sessions |
 | `GET /api/v1/participants/{id}/memory` | read | Memory Markdown |
@@ -493,20 +557,29 @@ Rough guidance for CPU with `int8` compute:
 ## Data & privacy
 
 - When a recording starts, Scriber posts a **recording notice** in the text
-  channel naming the voice channel, the local Whisper model in use, and the
+  channel naming the voice channel, the transcription engine in use (and,
+  for a cloud engine, that speech audio is sent to that service), and the
   exact external AI target (host and model) the transcript will be sent to —
   so every participant can leave the channel before being recorded.
-- **Audio never leaves your machine.** It is transcribed locally and the raw
-  audio is not stored at all — only text.
-- **The only data that leaves the machine** is the final meeting transcript,
-  sent once to the summary provider you configured — and if you use a
-  self-hosted OpenAI-compatible provider, not even that.
-- `/scriber cancel` discards all data of the current recording; nothing is
-  stored or sent.
+- **With the default engine, audio is transcribed locally** (Whisper) and no
+  audio leaves your machine during the meeting. If you opt into a cloud
+  engine (`TRANSCRIBE_ENGINE`), speech segments are sent to that provider
+  while the meeting runs — announced in the recording notice.
+- **Meeting audio is kept on your server** when `AUDIO_KEEP` is on (the
+  default) so you can replay it and regenerate transcripts; it expires
+  automatically after `AUDIO_RETENTION_DAYS` (`0` = keep forever) and is
+  never sent anywhere unless you explicitly regenerate with a cloud engine.
+  Set `AUDIO_KEEP=false` to store text only, like earlier versions.
+- **The final meeting transcript** is sent once to the summary provider you
+  configured — and if you use a self-hosted OpenAI-compatible provider, not
+  even that.
+- `/scriber cancel` discards all data of the current recording — audio
+  included; nothing is stored or sent.
 - Everything Scriber stores lives in the `data/` directory: `scriber.db`
   (meeting metadata and logs, SQLite), `transcripts/` (transcript and summary
-  files), and `models/` (downloaded Whisper models). Delete a meeting from
-  the dashboard to remove its files and database row.
+  files), `audio/` (kept meeting audio), and `models/` (downloaded Whisper
+  models). Delete a meeting from the dashboard to remove its files and
+  database row.
 
 ## Troubleshooting
 

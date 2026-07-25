@@ -16,11 +16,12 @@ import discord
 from discord.ext import voice_recv
 
 from scriber import config, database
+from scriber.audio import AudioArchive
 from scriber.bot.recorder import SegmentingSink
 
 if TYPE_CHECKING:
     from scriber.summary.summarizer import Summarizer
-    from scriber.transcription.whisper_engine import WhisperEngine
+    from scriber.transcription.live import LiveTranscriber
 
 log = logging.getLogger(__name__)
 
@@ -56,7 +57,7 @@ class MeetingSession:
         text_channel: Any,
         voice_channel: discord.abc.Connectable,
         started_by: discord.Member,
-        whisper: "WhisperEngine",
+        transcriber: "LiveTranscriber",
         summarizer: "Summarizer",
         language: str | None = None,
     ) -> None:
@@ -65,7 +66,7 @@ class MeetingSession:
         self.text_channel = text_channel
         self.voice_channel = voice_channel
         self.started_by = started_by
-        self.whisper = whisper
+        self.transcriber = transcriber
         self.summarizer = summarizer
         # Per-meeting transcription language override (a code or ``"auto"``);
         # ``None`` means fall back to the configured WHISPER_LANGUAGE.
@@ -77,6 +78,14 @@ class MeetingSession:
         #: Stable identity map: Discord user id -> latest seen display name.
         self.participant_names: dict[str, str] = {}
         self.transcript_path: Path | None = None
+        self.audio_path: Path | None = None
+        #: Spools segment audio for the kept meeting recording (AUDIO_KEEP).
+        self._archive: AudioArchive | None = None
+        #: Per-packet forensic trace (next to the audio files); written by the
+        #: flush loop from the sink's buffered lines, tiny and invaluable when
+        #: a recording sounds wrong.
+        self._packet_log_path: Path | None = None
+        self._packet_log_file = None
         self._sink: SegmentingSink | None = None
         self._flush_task: asyncio.Task[None] | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
@@ -103,6 +112,22 @@ class MeetingSession:
         self._sink = SegmentingSink(self.on_segment)
         self.voice_client.listen(self._sink)
         self._flush_task = asyncio.create_task(self._flush_loop())
+        # Audio keeping is best-effort: a storage problem must not stop the
+        # meeting, so a failed archive setup just logs and records text only.
+        if config.get().audio_keep:
+            try:
+                self._archive = AudioArchive(
+                    config.get().data_dir / "audio", self.meeting_id
+                )
+                self._packet_log_path = (
+                    config.get().data_dir / "audio" / f"{self.meeting_id}.packets.log"
+                )
+            except OSError:
+                log.exception(
+                    "Meeting %s: could not set up audio capture; recording text only.",
+                    self.meeting_id,
+                )
+                self._archive = None
         database.create_meeting(
             {
                 "id": self.meeting_id,
@@ -132,18 +157,24 @@ class MeetingSession:
         # Record stable identity keyed by Discord user id (name may change over time).
         self.participant_names[user_id] = display_name
         future = asyncio.run_coroutine_threadsafe(
-            self._transcribe_segment(display_name, ts, pcm), self._loop
+            self._transcribe_segment(user_id, display_name, ts, pcm), self._loop
         )
         self._pending.add(future)
         future.add_done_callback(self._pending.discard)
 
-    async def _transcribe_segment(self, display_name: str, ts: float, pcm: bytes) -> None:
+    async def _transcribe_segment(
+        self, user_id: str, display_name: str, ts: float, pcm: bytes
+    ) -> None:
         """Run Whisper on one segment and record the resulting transcript entry."""
         if self._closed:
             return
         self.participants.add(display_name)
+        if self._archive is not None:
+            self._archive.append(
+                user_id, display_name, ts - self._start_monotonic, pcm
+            )
         try:
-            text = await self.whisper.transcribe(pcm, language=self.language)
+            text = await self.transcriber.transcribe(pcm, language=self.language)
         except Exception as exc:
             log.warning(
                 "Meeting %s: transcription failed for a segment from %s: %s",
@@ -159,6 +190,34 @@ class MeetingSession:
         self._last_activity_monotonic = time.monotonic()
         database.update_meeting(self.meeting_id, segment_count=len(self.entries))
 
+    def _drain_packet_log(self) -> None:
+        """Append the sink's buffered per-packet trace lines to the log file."""
+        if self._sink is None or self._packet_log_path is None:
+            return
+        lines = self._sink.drain_packet_log()
+        if not lines:
+            return
+        try:
+            if self._packet_log_file is None:
+                self._packet_log_file = open(
+                    self._packet_log_path, "a", encoding="utf-8"
+                )
+            self._packet_log_file.write("\n".join(lines) + "\n")
+        except OSError:
+            log.warning(
+                "Meeting %s: packet trace write failed; tracing disabled.",
+                self.meeting_id,
+            )
+            self._packet_log_path = None
+
+    def _close_packet_log(self) -> None:
+        """Flush and close the packet trace file, if open."""
+        self._drain_packet_log()
+        if self._packet_log_file is not None:
+            with contextlib.suppress(OSError):
+                self._packet_log_file.close()
+            self._packet_log_file = None
+
     async def _flush_loop(self) -> None:
         """Periodically flush stale speaker buffers while recording."""
         try:
@@ -166,6 +225,7 @@ class MeetingSession:
                 await asyncio.sleep(FLUSH_INTERVAL)
                 if self._sink is not None:
                     self._sink.flush_stale()
+                    self._drain_packet_log()
         except asyncio.CancelledError:
             pass
 
@@ -268,6 +328,56 @@ class MeetingSession:
 
         ended_at = datetime.now(timezone.utc)
         duration = max(0.0, (ended_at - self.started_at).total_seconds())
+
+        # Audio diagnostics into the meeting log: how much transmission gap
+        # was reconstructed per speaker, reception anomalies (multiple RTP
+        # streams per user, unmapped packets), and any true-stereo stream
+        # (the first things to look at when a recording sounds off).
+        self._close_packet_log()
+        if self._sink is not None:
+            for uid, (count, seconds) in self._sink.gap_fill_stats().items():
+                name = self.participant_names.get(uid, uid)
+                database.append_log(
+                    self.meeting_id,
+                    f"Audio: reconstructed {count} transmission gap(s) "
+                    f"(~{seconds:.1f}s of silence) in {name}'s stream.",
+                )
+            report = self._sink.stream_report()
+            for uid, ssrcs in report["user_ssrcs"].items():
+                if len(ssrcs) > 1:
+                    name = self.participant_names.get(uid, uid)
+                    database.append_log(
+                        self.meeting_id,
+                        f"Audio: {name}'s packets arrived on {len(ssrcs)} different "
+                        f"RTP streams (SSRCs {ssrcs}) — likely cause of chopped audio.",
+                    )
+            unmapped_total = sum(report["unmapped"].values())
+            if unmapped_total:
+                database.append_log(
+                    self.meeting_id,
+                    f"Audio: {unmapped_total} voice packet(s) had no resolvable "
+                    f"speaker (SSRC(s) {sorted(k for k in report['unmapped'] if k is not None)}) "
+                    "and were dropped.",
+                )
+        if self._archive is not None:
+            for name, stereo in self._archive.stereo_summary().items():
+                if stereo["min_corr"] < 0.95:
+                    database.append_log(
+                        self.meeting_id,
+                        f"Audio: {name}'s stream carries true stereo (min L/R "
+                        f"correlation {stereo['min_corr']:.2f}); used single-channel "
+                        "downmix to avoid phase cancellation.",
+                    )
+
+        # Produce the kept meeting audio (mix + segment track). Best-effort:
+        # finalize() returns None on any failure and never raises.
+        if self._archive is not None:
+            self.audio_path = await asyncio.to_thread(self._archive.finalize, duration)
+            self._archive = None
+            if self.audio_path is not None:
+                database.append_log(
+                    self.meeting_id, f"Meeting audio saved ({self.audio_path.name})."
+                )
         self.entries.sort(key=lambda entry: entry[0])
         word_count = sum(len(text.split()) for _, _, text in self.entries)
         participants = sorted(self.participants)
@@ -311,6 +421,7 @@ class MeetingSession:
             ended_at=ended_at.isoformat(),
             duration_seconds=duration,
             transcript_path=str(path),
+            audio_path=str(self.audio_path) if self.audio_path is not None else None,
             segment_count=len(self.entries),
             word_count=word_count,
             participant_count=participant_count,
@@ -340,6 +451,10 @@ class MeetingSession:
             future.cancel()
         self._pending.clear()
         self.entries.clear()
+        self._close_packet_log()
+        if self._archive is not None:
+            await asyncio.to_thread(self._archive.discard)
+            self._archive = None
         # Remove any partial transcript file (normally none exists before stop()).
         transcript_path = (
             self.transcript_path

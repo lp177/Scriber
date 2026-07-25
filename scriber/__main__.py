@@ -10,8 +10,10 @@ import uvicorn
 from scriber import config, database
 from scriber.bot.client import create_bot
 from scriber.memory import MemoryManager
+from scriber.retention import audio_retention_loop, recover_interrupted
 from scriber.summary import Summarizer
 from scriber.transcription import WhisperEngine
+from scriber.transcription.live import LiveTranscriber
 from scriber.web import create_app
 
 log = logging.getLogger("scriber")
@@ -31,9 +33,18 @@ def main() -> None:
     (cfg.data_dir / "models").mkdir(parents=True, exist_ok=True)
     (cfg.data_dir / "memory").mkdir(parents=True, exist_ok=True)
     (cfg.data_dir / "avatars").mkdir(parents=True, exist_ok=True)
+    (cfg.data_dir / "audio").mkdir(parents=True, exist_ok=True)
     database.init(cfg.data_dir / "scriber.db")
 
+    # A previous process may have died mid-meeting: unstick its 'recording'
+    # rows and drop unfinalized audio spool temp files. Never fatal.
+    try:
+        recover_interrupted(cfg.data_dir)
+    except Exception:
+        log.exception("Startup recovery sweep failed; continuing.")
+
     whisper = WhisperEngine(models_dir=cfg.data_dir / "models")
+    transcriber = LiveTranscriber(whisper)
     summarizer = Summarizer()
     memory = MemoryManager(cfg.data_dir / "memory")
 
@@ -44,7 +55,7 @@ def main() -> None:
     bot = None
     if cfg.discord_token:
         try:
-            bot = create_bot(whisper, summarizer, memory)
+            bot = create_bot(transcriber, summarizer, memory)
         except Exception:
             log.exception("Failed to create the Discord bot; starting the web dashboard only.")
     else:
@@ -90,10 +101,14 @@ def main() -> None:
             # run_web below shuts the MCP listener down when the dashboard exits.
             mcp_http.install_signal_handlers = lambda: None  # type: ignore[method-assign]
 
+        # Hourly audio-retention sweep, cancelled when the dashboard exits.
+        retention_task = asyncio.create_task(audio_retention_loop())
+
         async def run_web() -> None:
             await server.serve()
             # serve() returning means uvicorn caught SIGINT/SIGTERM and shut the
-            # dashboard down — stop the MCP listener too so gather() can finish.
+            # dashboard down — stop the other tasks too so gather() can finish.
+            retention_task.cancel()
             if mcp_http is not None:
                 mcp_http.should_exit = True
 

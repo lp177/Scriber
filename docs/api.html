@@ -121,7 +121,10 @@
               <tr><td><code>GET /api/v1/meetings?limit=&amp;offset=</code></td><td>Paginated meeting list, newest first (<code>{total, items}</code>).</td></tr>
               <tr><td><code>GET /api/v1/meetings/{id}</code></td><td>One meeting incl. metadata and processing log.</td></tr>
               <tr><td><code>GET /api/v1/meetings/{id}/transcript</code></td><td>Transcript as text (<code>?download=1</code> for attachment).</td></tr>
+              <tr><td><code>GET /api/v1/meetings/{id}/transcripts</code></td><td>Transcript versions: the original plus any regenerated with another engine (<code>{items, can_regenerate, …}</code>).</td></tr>
+              <tr><td><code>GET /api/v1/meetings/{id}/transcripts/{tid}</code></td><td>One version's text — <code>tid</code> is <code>original</code> or a version id (<code>?download=1</code>).</td></tr>
               <tr><td><code>GET /api/v1/meetings/{id}/summary</code></td><td>Summary as Markdown (<code>?download=1</code>).</td></tr>
+              <tr><td><code>GET /api/v1/meetings/{id}/audio</code></td><td>The kept meeting audio, Ogg/Opus or WAV (<code>?download=1</code>).</td></tr>
               <tr><td><code>GET /api/v1/participants?limit=&amp;offset=</code></td><td>Paginated participant list (<code>{total, items}</code>).</td></tr>
               <tr><td><code>GET /api/v1/participants/{id}</code></td><td>One participant incl. memory and joined sessions.</td></tr>
               <tr><td><code>GET /api/v1/participants/{id}/memory</code></td><td>The participant's Markdown memory (<code>{content}</code>).</td></tr>
@@ -184,7 +187,7 @@
           <table class="perm-table">
             <thead><tr><th>Tools</th><th>Scope</th></tr></thead>
             <tbody>
-              <tr><td><code>get_stats</code>, <code>list_meetings</code>, <code>get_meeting</code>, <code>get_transcript</code>, <code>get_summary</code>, <code>list_participants</code>, <code>get_participant</code>, <code>get_participant_memory</code></td><td>any token</td></tr>
+              <tr><td><code>get_stats</code>, <code>list_meetings</code>, <code>get_meeting</code>, <code>get_transcript</code>, <code>get_summary</code>, <code>list_transcript_versions</code>, <code>get_transcript_version</code>, <code>list_participants</code>, <code>get_participant</code>, <code>get_participant_memory</code></td><td>any token</td></tr>
               <tr><td><code>update_transcript</code>, <code>update_summary</code>, <code>update_participant</code>, <code>update_participant_memory</code></td><td><code>readwrite</code></td></tr>
             </tbody>
           </table>

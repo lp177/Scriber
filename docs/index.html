@@ -65,12 +65,12 @@
         <h1>Discord meetings, <span class="accent-word">recorded &amp; written up</span>.</h1>
         <p class="tagline">
           Scriber joins your voice channel, records per-speaker audio, transcribes it
-          <strong>locally</strong> with Whisper, and writes structured Markdown minutes.
+          <strong>locally</strong> with Whisper (or the cloud engine you pick), and writes structured Markdown minutes.
         </p>
         <p class="subline">
-          Self-hostable in a single container. Audio never leaves your machine — only the
-          finished transcript is sent to the AI provider you choose (or to nothing at all,
-          with a local model).
+          Self-hostable in a single container. By default audio never leaves your machine —
+          only the finished transcript is sent to the AI provider you choose (or to nothing
+          at all, with a local model).
         </p>
         <div class="cta-row">
           <a class="btn primary" href="setup.html">
@@ -83,7 +83,7 @@
           </a>
         </div>
         <div class="badges">
-          <span class="pill"><span class="dot"></span> 100% local transcription</span>
+          <span class="pill"><span class="dot"></span> Local transcription by default</span>
           <span class="pill"><span class="dot"></span> One Docker/Podman container</span>
           <span class="pill"><span class="dot"></span> Anthropic · OpenAI · self-hosted</span>
           <span class="pill"><span class="dot"></span> Built-in admin dashboard</span>
@@ -108,8 +108,13 @@
           </div>
           <div class="card">
             <div class="ico">🗣️</div>
-            <h3>Local transcription</h3>
-            <p>Speech is transcribed on your own server with <a href="https://github.com/SYSTRAN/faster-whisper">faster-whisper</a>. Raw audio is never stored — only text.</p>
+            <h3>Transcription, your way</h3>
+            <p>Speech is transcribed on your own server with <a href="https://github.com/SYSTRAN/faster-whisper">faster-whisper</a> by default — or by Mistral Voxtral, ElevenLabs Scribe, or Google Chirp, with automatic fallback to local Whisper.</p>
+          </div>
+          <div class="card">
+            <div class="ico">🎧</div>
+            <h3>Meeting audio &amp; re-transcription</h3>
+            <p>Keep each meeting's audio (with automatic expiration you control), replay or download it, regenerate the transcript with another engine, and compare versions side by side.</p>
           </div>
           <div class="card">
             <div class="ico">🤖</div>
@@ -149,7 +154,7 @@
           <div class="card">
             <div class="ico">🔒</div>
             <h3>Private by design</h3>
-            <p>Audio is transcribed locally and discarded. With a self-hosted summary model, no meeting data leaves your machine at all.</p>
+            <p>By default audio is transcribed locally and kept only on your server, with automatic expiration. With a self-hosted summary model, no meeting data leaves your machine at all.</p>
           </div>
         </div>
       </div>
@@ -167,7 +172,7 @@
           <div class="step">
             <div class="num">1</div>
             <h3><code>/scriber start</code></h3>
-            <p>Join your voice channel and run it. Scriber joins, posts the recording notice, and transcribes per-speaker audio locally while you talk.</p>
+            <p>Join your voice channel and run it. Scriber joins, posts the recording notice, and transcribes per-speaker audio while you talk — locally by default.</p>
           </div>
           <div class="step">
             <div class="num">2</div>
@@ -192,14 +197,14 @@
         <div class="flow">
           <div class="flow-node"><div class="ico">🎙️</div><h4>Discord voice</h4><p>Per-speaker Opus audio</p></div>
           <div class="flow-arrow">→</div>
-          <div class="flow-node local"><div class="ico">💻</div><h4>Whisper (local)</h4><p>Transcribed on your server</p></div>
+          <div class="flow-node local"><div class="ico">💻</div><h4>Whisper (local)</h4><p>Transcribed on your server (default)</p></div>
           <div class="flow-arrow">→</div>
           <div class="flow-node local"><div class="ico">📝</div><h4>Transcript</h4><p>Text saved to <code>data/</code></p></div>
           <div class="flow-arrow">→</div>
           <div class="flow-node"><div class="ico">✨</div><h4>AI summary</h4><p>Your provider → minutes</p></div>
         </div>
         <p class="flow-note">
-          <strong>Audio never leaves your machine.</strong> Only the finished transcript is sent
+          <strong>By default, audio never leaves your machine.</strong> Only the finished transcript is sent
           once to the summary provider you configure — and with a self-hosted model, not even that.
         </p>
       </div>
@@ -421,7 +426,7 @@ docker compose up -d
           <h2>Local-first, consent-first</h2>
         </div>
         <div class="feature-grid">
-          <div class="card"><div class="ico">🎧</div><h3>Audio stays put</h3><p>Voice is transcribed locally with Whisper and the raw audio is never written to disk — only text.</p></div>
+          <div class="card"><div class="ico">🎧</div><h3>Audio stays put</h3><p>Voice is transcribed locally by default, and kept meeting audio stays on your server with an expiration you control (or disable keeping entirely for text-only).</p></div>
           <div class="card"><div class="ico">📤</div><h3>One outbound payload</h3><p>Only the finished transcript is sent, once, to your chosen summary provider. Use a local model and nothing leaves at all.</p></div>
           <div class="card"><div class="ico">🗑️</div><h3>Cancel means gone</h3><p><code>/scriber cancel</code> discards everything recorded so far. Delete a meeting from the dashboard to remove its files and row.</p></div>
         </div>

@@ -12,8 +12,10 @@ from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, PlainTextResponse, Response
 from pydantic import BaseModel
 
-from scriber import config, database
+from scriber import audio, config, database
 from scriber.memory import MemoryManager
+from scriber.transcription import providers as stt_providers
+from scriber.transcription import regen
 from scriber.web import api_auth
 from scriber.web.auth import create_token, require_auth
 
@@ -56,6 +58,14 @@ class TokenUpdate(BaseModel):
     scope: str | None = None
 
 
+class RegenRequest(BaseModel):
+    """Request to regenerate a meeting transcript with a different engine."""
+
+    engine: str
+    model: str | None = None
+    language: str | None = None
+
+
 # Maximum accepted avatar upload size (5 MB).
 _MAX_AVATAR_BYTES = 5 * 1024 * 1024
 
@@ -74,6 +84,12 @@ _AVATAR_MEDIA_TYPES: dict[str, str] = {
     ".jpeg": "image/jpeg",
     ".gif": "image/gif",
     ".webp": "image/webp",
+}
+
+# Kept meeting audio: on-disk extension mapped to the served media type.
+_AUDIO_MEDIA_TYPES: dict[str, str] = {
+    ".ogg": "audio/ogg",
+    ".wav": "audio/wav",
 }
 
 
@@ -102,9 +118,10 @@ def _resolve_data_file(path_value: Any) -> Path | None:
 
 
 def _with_file_flags(row: dict[str, Any]) -> dict[str, Any]:
-    """Add has_transcript / has_summary booleans to a meeting row."""
+    """Add has_transcript / has_summary / has_audio booleans to a meeting row."""
     row["has_transcript"] = _resolve_data_file(row.get("transcript_path")) is not None
     row["has_summary"] = _resolve_data_file(row.get("summary_path")) is not None
+    row["has_audio"] = _resolve_data_file(row.get("audio_path")) is not None
     return row
 
 
@@ -123,6 +140,87 @@ def _serve_meeting_file(meeting_id: str, column: str, media_type: str, download:
     except OSError as exc:
         raise HTTPException(status_code=404, detail="File not found") from exc
     return PlainTextResponse(text, media_type=media_type)
+
+
+def _serve_meeting_audio(meeting_id: str, download: bool) -> Response:
+    """Serve a meeting's kept audio file (inline for playback, or as a download)."""
+    row = database.get_meeting(meeting_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Meeting not found")
+    path = _resolve_data_file(row.get("audio_path"))
+    if path is None:
+        raise HTTPException(status_code=404, detail="No audio is stored for this meeting")
+    media_type = _AUDIO_MEDIA_TYPES.get(path.suffix.lower(), "application/octet-stream")
+    if download:
+        return FileResponse(path, media_type=media_type, filename=f"scriber-{path.name}")
+    return FileResponse(path, media_type=media_type)
+
+
+def _transcript_versions(meeting_id: str) -> dict[str, Any]:
+    """List a meeting's transcript versions plus regeneration state.
+
+    The original live transcript is presented as the pseudo-version
+    ``"original"``; alternate versions come from the ``meeting_transcripts``
+    table. Embeds the active/last regeneration job and the engine catalog so
+    the dashboard needs a single request.
+    """
+    row = database.get_meeting(meeting_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Meeting not found")
+    items: list[dict[str, Any]] = []
+    if _resolve_data_file(row.get("transcript_path")) is not None:
+        items.append(
+            {
+                "id": "original",
+                "engine": "whisper",
+                "label": "Original (live recording)",
+                "created_at": row.get("ended_at"),
+            }
+        )
+    items.extend(
+        {
+            "id": version["id"],
+            "engine": version["engine"],
+            "label": version["label"],
+            "created_at": version["created_at"],
+        }
+        for version in database.list_transcripts(meeting_id)
+        if _resolve_data_file(version.get("path")) is not None
+    )
+    audio_dir = config.get().data_dir / "audio"
+    return {
+        "items": items,
+        "job": regen.get_job(meeting_id),
+        "can_regenerate": audio.segments_available(audio_dir, meeting_id),
+        "engines": stt_providers.engine_catalog(),
+    }
+
+
+def _resolve_transcript_version(meeting_id: str, transcript_id: str) -> Path:
+    """Return the file of a transcript version (``"original"`` or a row id)."""
+    row = database.get_meeting(meeting_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Meeting not found")
+    if transcript_id == "original":
+        path = _resolve_data_file(row.get("transcript_path"))
+    else:
+        version = database.get_transcript(meeting_id, transcript_id)
+        path = _resolve_data_file(version.get("path")) if version is not None else None
+    if path is None:
+        raise HTTPException(status_code=404, detail="Transcript version not found")
+    return path
+
+
+def _serve_transcript_version(meeting_id: str, transcript_id: str, download: bool) -> Response:
+    """Serve one transcript version as plain text, or as a download."""
+    path = _resolve_transcript_version(meeting_id, transcript_id)
+    if download:
+        return FileResponse(path, media_type="text/plain", filename=path.name)
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise HTTPException(status_code=404, detail="Transcript version not found") from exc
+    return PlainTextResponse(text, media_type="text/plain")
 
 
 def _memory_manager() -> MemoryManager:
@@ -329,6 +427,76 @@ async def get_summary(
     )
 
 
+@router.get("/meetings/{meeting_id}/audio")
+async def get_audio(
+    meeting_id: str, download: int = 0, _user: str = Depends(require_auth)
+) -> Response:
+    """Serve the meeting's kept audio, inline or as a download when download=1."""
+    return _serve_meeting_audio(meeting_id, download=bool(download))
+
+
+@router.get("/meetings/{meeting_id}/transcripts")
+async def list_transcript_versions(
+    meeting_id: str, _user: str = Depends(require_auth)
+) -> dict[str, Any]:
+    """Transcript versions (original + regenerated), job state and engine catalog."""
+    return _transcript_versions(meeting_id)
+
+
+@router.get("/meetings/{meeting_id}/transcripts/{transcript_id}")
+async def get_transcript_version(
+    meeting_id: str, transcript_id: str, download: int = 0, _user: str = Depends(require_auth)
+) -> Response:
+    """Serve one transcript version (id ``original`` or a generated version id)."""
+    return _serve_transcript_version(meeting_id, transcript_id, download=bool(download))
+
+
+@router.post("/meetings/{meeting_id}/transcripts", status_code=202)
+async def regenerate_transcript(
+    meeting_id: str, body: RegenRequest, _user: str = Depends(require_auth)
+) -> dict[str, Any]:
+    """Start regenerating the transcript from the archived audio (background job).
+
+    409 when a job is already running for this meeting; 400 when the engine is
+    unknown/unconfigured or the meeting has no archived audio segments.
+    """
+    row = database.get_meeting(meeting_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Meeting not found")
+    if row.get("status") == "recording":
+        raise HTTPException(
+            status_code=409, detail="Meeting is still recording — stop it first"
+        )
+    try:
+        job = regen.start_job(
+            meeting_id, body.engine, body.model or "", body.language or ""
+        )
+    except ValueError as exc:
+        status = 409 if "already running" in str(exc) else 400
+        raise HTTPException(status_code=status, detail=str(exc)) from exc
+    return {"ok": True, "job": job}
+
+
+@router.delete("/meetings/{meeting_id}/transcripts/{transcript_id}")
+async def delete_transcript_version(
+    meeting_id: str, transcript_id: str, _user: str = Depends(require_auth)
+) -> dict[str, bool]:
+    """Delete a regenerated transcript version (the original cannot be deleted)."""
+    if transcript_id == "original":
+        raise HTTPException(status_code=400, detail="The original transcript cannot be deleted")
+    version = database.get_transcript(meeting_id, transcript_id)
+    if version is None:
+        raise HTTPException(status_code=404, detail="Transcript version not found")
+    path = _resolve_data_file(version.get("path"))
+    if path is not None:
+        try:
+            path.unlink()
+        except OSError:
+            logger.warning("Failed to delete transcript file %s", path)
+    database.delete_transcript(meeting_id, transcript_id)
+    return {"ok": True}
+
+
 @router.delete("/meetings/{meeting_id}")
 async def delete_meeting(meeting_id: str, _user: str = Depends(require_auth)) -> dict[str, bool]:
     """Delete a meeting row and its files; refuse while it is still recording."""
@@ -339,6 +507,13 @@ async def delete_meeting(meeting_id: str, _user: str = Depends(require_auth)) ->
         raise HTTPException(
             status_code=409, detail="Meeting is currently recording and cannot be deleted"
         )
+    job = regen.get_job(meeting_id)
+    if job is not None and job.get("status") == "running":
+        raise HTTPException(
+            status_code=409,
+            detail="A transcript regeneration is running for this meeting — "
+            "wait for it to finish before deleting",
+        )
     for column in ("transcript_path", "summary_path"):
         path = _resolve_data_file(row.get(column))
         if path is not None:
@@ -346,7 +521,17 @@ async def delete_meeting(meeting_id: str, _user: str = Depends(require_auth)) ->
                 path.unlink()
             except OSError:
                 logger.warning("Failed to delete file %s for meeting %s", path, meeting_id)
+    # Regenerated transcript versions and every kept audio artifact go too.
+    for version in database.list_transcripts(meeting_id):
+        path = _resolve_data_file(version.get("path"))
+        if path is not None:
+            try:
+                path.unlink()
+            except OSError:
+                logger.warning("Failed to delete file %s for meeting %s", path, meeting_id)
+    audio.delete_meeting_audio(config.get().data_dir / "audio", meeting_id)
     database.delete_meeting(meeting_id)
+    regen.discard_job(meeting_id)
     return {"ok": True}
 
 
@@ -534,9 +719,13 @@ async def get_settings(_user: str = Depends(require_auth)) -> dict[str, Any]:
 
 @router.put("/settings")
 async def put_settings(
-    changes: dict[str, str], _user: str = Depends(require_auth)
+    changes: dict[str, str | int | float | bool], _user: str = Depends(require_auth)
 ) -> dict[str, Any]:
-    """Persist editable configuration changes; 400 on any non-editable key."""
+    """Persist editable configuration changes; 400 on any non-editable key.
+
+    Scalar values are accepted (a number input naturally submits a JSON
+    number); ``ConfigManager.update`` stringifies them before persisting.
+    """
     manager = _manager()
     try:
         manager.update(changes)

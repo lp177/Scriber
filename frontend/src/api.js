@@ -124,6 +124,44 @@ export function summaryUrl(id, download = false) {
   return `/api/meetings/${encodeURIComponent(id)}/summary${download ? "?download=1" : ""}`;
 }
 
+/** URL of a meeting's kept audio file (auth required — load with fetchBlob). */
+export function audioUrl(id, download = false) {
+  return `/api/meetings/${encodeURIComponent(id)}/audio${download ? "?download=1" : ""}`;
+}
+
+/** GET /api/meetings/{id}/transcripts — {items, job, can_regenerate, engines}. */
+export async function getTranscriptVersions(id) {
+  return (await request(`/api/meetings/${encodeURIComponent(id)}/transcripts`)).json();
+}
+
+/** URL of one transcript version ("original" or a generated version id). */
+export function transcriptVersionUrl(id, transcriptId, download = false) {
+  return (
+    `/api/meetings/${encodeURIComponent(id)}/transcripts/` +
+    `${encodeURIComponent(transcriptId)}${download ? "?download=1" : ""}`
+  );
+}
+
+/** POST /api/meetings/{id}/transcripts — start a regeneration job; returns {ok, job}. */
+export async function regenerateTranscript(id, engine, model, language) {
+  return (
+    await request(`/api/meetings/${encodeURIComponent(id)}/transcripts`, {
+      method: "POST",
+      body: JSON.stringify({ engine, model, language }),
+    })
+  ).json();
+}
+
+/** DELETE /api/meetings/{id}/transcripts/{tid} — remove a generated version. */
+export async function deleteTranscriptVersion(id, transcriptId) {
+  return (
+    await request(
+      `/api/meetings/${encodeURIComponent(id)}/transcripts/${encodeURIComponent(transcriptId)}`,
+      { method: "DELETE" },
+    )
+  ).json();
+}
+
 /** Fetch a text resource (transcript/summary) with auth headers attached. */
 export async function fetchText(url) {
   return (await request(url)).text();

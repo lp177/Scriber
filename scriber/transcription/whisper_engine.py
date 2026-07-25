@@ -93,15 +93,17 @@ class WhisperEngine:
     @staticmethod
     def _prepare_audio(pcm: bytes) -> np.ndarray:
         """Convert s16le stereo 48 kHz bytes to mono float32 16 kHz samples."""
-        # Guard against a truncated trailing byte / partial stereo frame.
-        usable = len(pcm) - (len(pcm) % 4)
-        if usable <= 0:
+        # Phase-aware downmix (shared with the audio archive): averages the
+        # channels only when they are near-identical, otherwise keeps the
+        # stronger channel — a plain mean comb-filters genuinely different
+        # L/R streams (virtual mixers etc.), degrading transcription too.
+        from scriber.audio import downmix_to_mono
+
+        mono, _diag = downmix_to_mono(pcm)
+        if mono.size == 0:
             return np.empty(0, dtype=np.float32)
-        samples = np.frombuffer(pcm[:usable], dtype=np.int16)
-        # Stereo -> mono by averaging channels, then normalize to [-1.0, 1.0].
-        mono = (samples.reshape(-1, 2).mean(axis=1) / 32768.0).astype(np.float32)
-        # 48 kHz -> 16 kHz by simple decimation (keep every 3rd sample).
-        return mono[::3]
+        # Normalize to [-1.0, 1.0]; 48 kHz -> 16 kHz by simple decimation.
+        return (mono / 32768.0).astype(np.float32)[::3]
 
     def _transcribe_sync(self, cfg: config.Config, audio: np.ndarray, lang: str) -> str:
         """Blocking worker: (re)load the model if needed and run inference."""

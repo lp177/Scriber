@@ -3,7 +3,7 @@
 // the transcript/summary viewer dialog. Stats auto-refresh every 30 seconds.
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import { useRouter } from "vue-router";
-import { deleteMeeting, fetchText, getBotStatus, getMeetings, getStats, resyncBot, summaryUrl, transcriptUrl } from "../api.js";
+import { audioUrl, deleteMeeting, fetchBlob, fetchText, getBotStatus, getMeetings, getStats, resyncBot, summaryUrl, transcriptUrl } from "../api.js";
 import StatCards from "../components/StatCards.vue";
 import MeetingsPerDay from "../components/MeetingsPerDay.vue";
 import MeetingsTable from "../components/MeetingsTable.vue";
@@ -120,23 +120,33 @@ function onOpen(meeting) {
   router.push(`/meetings/${encodeURIComponent(meeting.id)}`);
 }
 
-/** Fetch a transcript/summary as text and trigger a client-side download. */
+/** Save a blob to disk through a temporary object-URL anchor. */
+function saveBlob(blob, filename) {
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(blob);
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(link.href);
+}
+
+/** Fetch a transcript/summary/audio file and trigger a client-side download. */
 async function onDownload(meeting, kind) {
   error.value = "";
   try {
+    if (kind === "audio") {
+      const blob = await fetchBlob(audioUrl(meeting.id, true));
+      saveBlob(blob, `scriber-${meeting.id}.${blob.type.includes("wav") ? "wav" : "ogg"}`);
+      return;
+    }
     const isSummary = kind === "summary";
     const url = isSummary ? summaryUrl(meeting.id, true) : transcriptUrl(meeting.id, true);
     const text = await fetchText(url);
     const blob = new Blob([text], {
       type: isSummary ? "text/markdown;charset=utf-8" : "text/plain;charset=utf-8",
     });
-    const link = document.createElement("a");
-    link.href = URL.createObjectURL(blob);
-    link.download = `${meeting.id}.${isSummary ? "md" : "txt"}`;
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    URL.revokeObjectURL(link.href);
+    saveBlob(blob, `${meeting.id}.${isSummary ? "md" : "txt"}`);
   } catch (e) {
     error.value = (e && e.message) || "Download failed.";
   }

@@ -11,6 +11,7 @@ import {
   updateApiToken,
 } from "../api.js";
 import { formatDate } from "../format.js";
+import InfoTip from "../components/InfoTip.vue";
 
 const fields = ref([]);
 const form = ref({});
@@ -47,6 +48,10 @@ const FIELD_INFO = {
     label: "Summary base URL",
     hint: "Base URL of the summary provider API.",
   },
+  TRANSCRIBE_ENGINE: {
+    label: "Transcription engine",
+    hint: "Engine transcribing meetings live. Cloud engines need their API key below and fall back to local Whisper on any failure.",
+  },
   WHISPER_MODEL: {
     label: "Whisper model",
     hint: "Transcription model size: tiny, base, small, medium, large-v3…",
@@ -62,6 +67,54 @@ const FIELD_INFO = {
   WHISPER_COMPUTE_TYPE: {
     label: "Whisper compute type",
     hint: "Precision used by faster-whisper (int8, float16, …).",
+  },
+  AUDIO_KEEP: {
+    label: "Keep meeting audio",
+    hint: "Save each meeting's audio so it can be played, downloaded and re-transcribed.",
+  },
+  AUDIO_RETENTION_DAYS: {
+    label: "Audio expiration (days)",
+    hint: "Days before a meeting's audio is deleted automatically.",
+  },
+  VOXTRAL_API_KEY: {
+    label: "Voxtral (Mistral) — API key",
+    hint: "Mistral API key; enables the Voxtral transcription engine.",
+  },
+  VOXTRAL_MODEL: {
+    label: "Voxtral — model",
+    hint: "e.g. voxtral-mini-latest or voxtral-small-latest.",
+  },
+  VOXTRAL_BASE_URL: {
+    label: "Voxtral — base URL",
+    hint: "Mistral API base URL (default https://api.mistral.ai).",
+  },
+  ELEVENLABS_API_KEY: {
+    label: "ElevenLabs Scribe — API key",
+    hint: "ElevenLabs API key; enables the Scribe transcription engine.",
+  },
+  ELEVENLABS_MODEL: {
+    label: "ElevenLabs — model",
+    hint: "e.g. scribe_v2 or scribe_v1.",
+  },
+  ELEVENLABS_BASE_URL: {
+    label: "ElevenLabs — base URL",
+    hint: "ElevenLabs API base URL (default https://api.elevenlabs.io).",
+  },
+  GOOGLE_SPEECH_API_KEY: {
+    label: "Google Speech — API key",
+    hint: "Google Cloud API key with Speech-to-Text v2 access; enables Chirp.",
+  },
+  GOOGLE_SPEECH_PROJECT: {
+    label: "Google Speech — project ID",
+    hint: "Google Cloud project ID (required alongside the API key).",
+  },
+  GOOGLE_SPEECH_LOCATION: {
+    label: "Google Speech — location",
+    hint: "API region, e.g. eu, us, or global.",
+  },
+  GOOGLE_SPEECH_MODEL: {
+    label: "Google Speech — model",
+    hint: "e.g. chirp_3, chirp_2 or latest_long.",
   },
   ADMIN_USERNAME: {
     label: "Admin username",
@@ -119,6 +172,37 @@ function hintFor(key) {
   }
   return FIELD_INFO[key]?.hint || "";
 }
+
+/** Loose boolean parsing matching the backend's accepted "on" values. */
+function isTrue(value) {
+  return ["1", "true", "yes", "on"].includes(String(value ?? "").trim().toLowerCase());
+}
+
+/** Whether the "keep meeting audio" switch is currently on in the form. */
+const audioKeepOn = computed(() => isTrue(form.value.AUDIO_KEEP));
+
+/** Toggle handler for the AUDIO_KEEP Material switch. */
+function setAudioKeep(event) {
+  form.value.AUDIO_KEEP = event.target.checked ? "true" : "false";
+}
+
+/** Options offered by the live transcription-engine select. */
+const ENGINE_OPTIONS = [
+  { value: "whisper", label: "Whisper (local — audio never leaves this server)" },
+  { value: "voxtral", label: "Voxtral (Mistral AI cloud)" },
+  { value: "elevenlabs", label: "ElevenLabs Scribe (cloud)" },
+  { value: "google", label: "Google Speech-to-Text (cloud)" },
+];
+
+const AUDIO_KEEP_TIP =
+  "When enabled, the mixed meeting audio is stored under the data directory " +
+  "after every recording. You can then play or download it from the dashboard " +
+  "and regenerate the transcript with a different engine.";
+
+const RETENTION_TIP =
+  "The meeting audio is deleted automatically this many days after the " +
+  "meeting ends (transcripts and summaries are kept). Set it to 0 to keep " +
+  "audio forever — it never expires.";
 
 /** Key of the last SUMMARY_* field — the provider presets note goes below it. */
 const lastSummaryKey = computed(() => {
@@ -206,12 +290,36 @@ const changes = computed(() => {
     if (!field.editable) {
       continue;
     }
-    const value = form.value[field.key];
+    // Coerce to string: a type="number" v-model yields a JS number, and the
+    // .env file (like the API) works in strings.
+    const value = String(form.value[field.key] ?? "");
     if (field.secret) {
       if (value !== "") {
         out[field.key] = value;
       }
-    } else if (value !== original.value[field.key]) {
+      continue;
+    }
+    if (field.key === "AUDIO_KEEP") {
+      // Compare as booleans so an .env spelled "1"/"yes" doesn't leave a
+      // phantom pending change after toggling the switch back.
+      if (isTrue(value) !== isTrue(original.value[field.key])) {
+        out[field.key] = value;
+      }
+      continue;
+    }
+    if (field.key === "AUDIO_RETENTION_DAYS") {
+      // Never submit an empty/invalid value — the backend would silently
+      // fall back to 30 days while the UI could claim something else.
+      const days = value.trim();
+      if (days === "" || !Number.isInteger(Number(days)) || Number(days) < 0) {
+        continue;
+      }
+      if (days !== String(original.value[field.key])) {
+        out[field.key] = days;
+      }
+      continue;
+    }
+    if (value !== original.value[field.key]) {
       out[field.key] = value;
     }
   }
@@ -356,7 +464,75 @@ onUnmounted(() => {
 
     <form v-else class="settings-form" @submit.prevent="save">
       <template v-for="field in fields" :key="field.key">
-        <div class="field-row">
+        <!-- Live transcription engine renders as a select. -->
+        <div v-if="field.key === 'TRANSCRIBE_ENGINE'" class="field-row">
+          <label :for="`field-${field.key}`">{{ labelFor(field.key) }}</label>
+          <div class="field-input">
+            <select
+              :id="`field-${field.key}`"
+              v-model="form[field.key]"
+              :name="field.key"
+              :disabled="!field.editable"
+            >
+              <option v-for="option in ENGINE_OPTIONS" :key="option.value" :value="option.value">
+                {{ option.label }}
+              </option>
+            </select>
+          </div>
+          <p class="field-hint">{{ hintFor(field.key) }} <code>{{ field.key }}</code></p>
+        </div>
+
+        <!-- "Keep meeting audio" renders as a Material switch. -->
+        <div v-else-if="field.key === 'AUDIO_KEEP'" class="field-row">
+          <div class="switch-row">
+            <label class="switch">
+              <input
+                :id="`field-${field.key}`"
+                type="checkbox"
+                :name="field.key"
+                :checked="audioKeepOn"
+                :disabled="!field.editable"
+                @change="setAudioKeep"
+              />
+              <span class="switch-track" aria-hidden="true"></span>
+              <span class="switch-thumb" aria-hidden="true"></span>
+              <span class="switch-label">{{ labelFor(field.key) }}</span>
+            </label>
+            <InfoTip :text="AUDIO_KEEP_TIP" label="About keeping meeting audio" />
+          </div>
+          <p class="field-hint">{{ hintFor(field.key) }} <code>{{ field.key }}</code></p>
+        </div>
+
+        <!-- Retention only applies while audio keeping is enabled. -->
+        <div v-else-if="field.key === 'AUDIO_RETENTION_DAYS'" v-show="audioKeepOn" class="field-row">
+          <label :for="`field-${field.key}`">{{ labelFor(field.key) }}</label>
+          <div class="field-input">
+            <input
+              :id="`field-${field.key}`"
+              v-model="form[field.key]"
+              :name="field.key"
+              type="number"
+              min="0"
+              step="1"
+              inputmode="numeric"
+              class="field-number"
+              :disabled="!field.editable"
+            />
+            <InfoTip :text="RETENTION_TIP" label="About audio expiration" />
+          </div>
+          <p class="field-hint">
+            <template v-if="String(form[field.key]).trim() === ''">
+              Enter a number of days (0 = keep audio forever) — an empty value is not saved.
+            </template>
+            <template v-else-if="Number(form[field.key]) === 0">
+              Audio never expires — files are kept until deleted manually.
+            </template>
+            <template v-else>{{ hintFor(field.key) }}</template>
+            <code>{{ field.key }}</code>
+          </p>
+        </div>
+
+        <div v-else class="field-row">
           <label :for="`field-${field.key}`">{{ labelFor(field.key) }}</label>
           <div class="field-input">
             <input
@@ -416,6 +592,16 @@ onUnmounted(() => {
             </li>
           </ul>
           <button type="button" class="btn" @click="addProvider">+ Add provider</button>
+        </aside>
+
+        <aside v-if="field.key === 'GOOGLE_SPEECH_MODEL'" class="provider-note">
+          <p>
+            <strong>Transcription engines</strong> re-transcribe the <em>saved audio</em> of a
+            meeting from its detail page, producing extra transcript versions you can compare
+            side by side. Local Whisper is always available (pick any model profile); the cloud
+            engines above become available once their API key is set. Audio is only sent to a
+            cloud engine when you explicitly regenerate with it.
+          </p>
         </aside>
       </template>
 

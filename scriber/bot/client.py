@@ -15,7 +15,7 @@ if TYPE_CHECKING:
     from scriber.bot.session import MeetingSession
     from scriber.memory import MemoryManager
     from scriber.summary.summarizer import Summarizer
-    from scriber.transcription.whisper_engine import WhisperEngine
+    from scriber.transcription.live import LiveTranscriber
 
 log = logging.getLogger(__name__)
 
@@ -100,7 +100,7 @@ class ScribBot(commands.Bot):
     """Discord bot that records, transcribes and summarizes voice-channel meetings."""
 
     def __init__(
-        self, whisper: "WhisperEngine", summarizer: "Summarizer", memory: "MemoryManager"
+        self, transcriber: "LiveTranscriber", summarizer: "Summarizer", memory: "MemoryManager"
     ) -> None:
         intents = discord.Intents.default()
         intents.voice_states = True  # required for voice capture; message_content is not needed
@@ -109,7 +109,7 @@ class ScribBot(commands.Bot):
             intents=intents,
             help_command=None,
         )
-        self.whisper = whisper
+        self.transcriber = transcriber
         self.summarizer = summarizer
         self.memory = memory
         #: Active meeting sessions keyed by guild ID (one session per guild).
@@ -239,7 +239,7 @@ class ScribBot(commands.Bot):
 
 
 def create_bot(
-    whisper: "WhisperEngine", summarizer: "Summarizer", memory: "MemoryManager"
+    transcriber: "LiveTranscriber", summarizer: "Summarizer", memory: "MemoryManager"
 ) -> ScribBot:
     """Create the configured :class:`ScribBot` instance."""
-    return ScribBot(whisper, summarizer, memory)
+    return ScribBot(transcriber, summarizer, memory)

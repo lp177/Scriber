@@ -6,6 +6,7 @@ import SettingsView from "./views/SettingsView.vue";
 import ParticipantsView from "./views/ParticipantsView.vue";
 import UserView from "./views/UserView.vue";
 import MeetingView from "./views/MeetingView.vue";
+import CompareView from "./views/CompareView.vue";
 
 const router = createRouter({
   history: createWebHashHistory(),
@@ -15,6 +16,7 @@ const router = createRouter({
     { path: "/participants", name: "participants", component: ParticipantsView },
     { path: "/users/:id", name: "user", component: UserView },
     { path: "/meetings/:id", name: "meeting", component: MeetingView },
+    { path: "/meetings/:id/compare", name: "compare", component: CompareView },
     { path: "/settings", name: "settings", component: SettingsView },
   ],
 });
