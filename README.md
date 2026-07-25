@@ -477,16 +477,6 @@ is unavailable, the same data is at https://YOUR-SCRIBER-HOST/api/v1 with
   facts about a participant — keep them short, markdown, third-person.
 ```
 
-### Use Scriber memories inside Memories
-
-Scriber is a **compatible memory provider** for the
-[Memories](https://git.allkeyshop.com/lp177/memories) app: set `SCRIBER_URL`
-and `SCRIBER_TOKEN` in Memories and every participant memory appears there as
-a live folder (`scriber/<participant>/memory.md`) — browsable, editable and
-shareable from its explorer, REST API and MCP. The wire contract lives in the
-Memories README ("Compatible memory providers") and is pinned by its
-`scriber_contract` regression tests.
-
 ## Whisper model sizes
 
 The model is downloaded automatically on first use into `data/models/`.
