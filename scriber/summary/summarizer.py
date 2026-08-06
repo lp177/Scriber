@@ -125,10 +125,10 @@ class Summarizer:
         return [p.target_label() for p in self._enabled_providers()]
 
     def display_target(self) -> str:
-        """Return the failover chain, e.g. ``api.anthropic.com / claude-opus-4-8``.
+        """Return the failover chain, e.g. ``api.anthropic.com / claude-opus-5``.
 
         With several providers configured, they are joined with an arrow in the
-        order they are tried, e.g. ``… / claude-opus-4-8 → api.openai.com / gpt-4o``.
+        order they are tried, e.g. ``… / claude-opus-5 → api.openai.com / gpt-4o``.
         """
         labels = self.targets()
         return " → ".join(labels) if labels else "no provider configured"

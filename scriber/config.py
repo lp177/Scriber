@@ -110,7 +110,7 @@ _LEGACY_KEYS: set[str] = {
 _DEFAULT_PROVIDER: dict[str, str] = {
     "PROVIDER": "anthropic",
     "API_KEY": "",
-    "MODEL": "claude-opus-4-8",
+    "MODEL": "claude-opus-5",
     "BASE_URL": "https://api.anthropic.com",
 }
 
@@ -150,7 +150,7 @@ class ProviderConfig:
         return bool(self.provider)
 
     def target_label(self) -> str:
-        """Human-readable target, e.g. ``api.anthropic.com / claude-opus-4-8``."""
+        """Human-readable target, e.g. ``api.anthropic.com / claude-opus-5``."""
         netloc = urlparse(self.base_url).netloc or self.base_url or "?"
         return f"{netloc} / {self.model or '?'}"
 

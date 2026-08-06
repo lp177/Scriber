@@ -579,7 +579,7 @@ onUnmounted(() => {
           <ul>
             <li>
               <strong>Anthropic (Claude)</strong> — provider <code>anthropic</code>, base URL
-              <code>https://api.anthropic.com</code>, model e.g. <code>claude-opus-4-8</code>
+              <code>https://api.anthropic.com</code>, model e.g. <code>claude-opus-5</code>
             </li>
             <li>
               <strong>OpenAI</strong> — provider <code>openai</code>, base URL

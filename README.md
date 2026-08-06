@@ -133,7 +133,7 @@ resort.
 # Provider 1: Anthropic (Claude) — tried first
 SUMMARY_PROVIDER_1=anthropic
 SUMMARY_API_KEY_1=sk-ant-xxxxxxxx
-SUMMARY_MODEL_1=claude-opus-4-8
+SUMMARY_MODEL_1=claude-opus-5
 SUMMARY_BASE_URL_1=https://api.anthropic.com
 
 # Provider 2: OpenAI (ChatGPT) — tried if provider 1 fails
@@ -174,7 +174,7 @@ anyone else.
 | `DISCORD_GUILD_ID` | *(empty)* | no | optional: restrict/speed up slash-command sync to one guild |
 | `SUMMARY_PROVIDER_<n>` | `anthropic` (as `_1`) | yes | provider kind of the *n*-th block: `anthropic` \| `openai` \| `openai-compatible` |
 | `SUMMARY_API_KEY_<n>` | *(empty)* | yes | API key for provider *n* |
-| `SUMMARY_MODEL_<n>` | `claude-opus-4-8` (as `_1`) | yes | model ID for provider *n* |
+| `SUMMARY_MODEL_<n>` | `claude-opus-5` (as `_1`) | yes | model ID for provider *n* |
 | `SUMMARY_BASE_URL_<n>` | `https://api.anthropic.com` (as `_1`) | yes | base URL for provider *n* |
 | `TRANSCRIBE_ENGINE` | `whisper` | yes | live transcription engine: `whisper` (local) \| `voxtral` \| `elevenlabs` \| `google` (cloud engines fall back to local Whisper on failure) |
 | `WHISPER_MODEL` | `base` | yes | tiny/base/small/medium/large-v3… |
