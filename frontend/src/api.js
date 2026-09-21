@@ -254,6 +254,16 @@ export async function saveSummary(id, content) {
   ).json();
 }
 
+/** POST /api/meetings/{id}/summary — start a summary generation job; returns {ok, job}. */
+export async function regenerateSummary(id, transcriptId, postToDiscord) {
+  return (
+    await request(`/api/meetings/${encodeURIComponent(id)}/summary`, {
+      method: "POST",
+      body: JSON.stringify({ transcript_id: transcriptId, post_to_discord: postToDiscord }),
+    })
+  ).json();
+}
+
 /** GET /api/tokens — list API tokens (metadata only). */
 export async function getApiTokens() {
   return (await request("/api/tokens")).json();

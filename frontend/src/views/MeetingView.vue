@@ -10,6 +10,7 @@ import {
   fetchText,
   getMeeting,
   getTranscriptVersions,
+  regenerateSummary,
   regenerateTranscript,
   saveSummary,
   saveTranscript,
@@ -62,6 +63,9 @@ async function load() {
     loading.value = false;
   }
   refreshVersions();
+  if (summaryJobRunning.value) {
+    scheduleSummaryPoll();
+  }
 }
 
 // ---- Meeting audio (played through a blob URL so the request stays authenticated) ----
@@ -205,10 +209,108 @@ async function removeVersion(version) {
   }
   try {
     await deleteTranscriptVersion(meetingId, version.id);
+    if (summarySource.value === version.id) {
+      summarySource.value = "original";
+    }
     await refreshVersions();
     showToast("Transcript version deleted.", "success");
   } catch (e) {
     showToast((e && e.message) || "Failed to delete the transcript version.", "error");
+  }
+}
+
+// ---- Summary (re)generation: the retry path when summarization failed ----
+const summarySource = ref("original");
+const summaryPostToDiscord = ref(false);
+const summaryStarting = ref(false);
+let summaryPollTimer = null;
+
+const summaryJob = computed(() => meeting.value?.summary_job || null);
+const summaryJobRunning = computed(() => summaryJob.value?.status === "running");
+/** Summarization failed at /scriber stop: the transcript exists but no summary does. */
+const summaryFailed = computed(
+  () =>
+    meeting.value?.status === "error" &&
+    meeting.value.has_transcript &&
+    !meeting.value.has_summary,
+);
+const canGenerateSummary = computed(
+  () => !!meeting.value?.has_transcript || (versions.value?.items?.length || 0) > 0,
+);
+
+function scheduleSummaryPoll() {
+  if (disposed) {
+    return;
+  }
+  if (summaryPollTimer !== null) {
+    window.clearTimeout(summaryPollTimer);
+  }
+  summaryPollTimer = window.setTimeout(refreshSummaryJob, 2000);
+}
+
+/** Poll the meeting row while a summary job runs; load the new summary when done. */
+async function refreshSummaryJob() {
+  if (disposed) {
+    return;
+  }
+  let data;
+  try {
+    data = await getMeeting(meetingId);
+  } catch {
+    // Transient fetch failure: keep polling, the job is still running server-side.
+    scheduleSummaryPoll();
+    return;
+  }
+  if (disposed) {
+    return;
+  }
+  meeting.value = data;
+  const job = data.summary_job;
+  if (job && job.status === "running") {
+    scheduleSummaryPoll();
+    return;
+  }
+  if (job && job.status === "done") {
+    try {
+      summaryDraft.value = await fetchText(summaryUrl(meetingId));
+      showSummaryPreview.value = true;
+    } catch {
+      // The summary was written server-side; a reload will show it.
+    }
+    const posted = job.posted === false ? " Posting it to Discord failed — see the log." : "";
+    showToast(`Summary generated.${posted}`, job.posted === false ? "error" : "success");
+  } else if (job && job.status === "error") {
+    showToast(job.error || "Summary generation failed.", "error");
+  }
+}
+
+async function startSummaryRegen() {
+  if (
+    meeting.value?.has_summary &&
+    !window.confirm(
+      "Generate a new summary? It replaces the current one, including any manual edits.",
+    )
+  ) {
+    return;
+  }
+  summaryStarting.value = true;
+  try {
+    // Fall back to the first existing version when the selected one is gone
+    // (e.g. only regenerated transcripts are left).
+    const items = versions.value?.items || [];
+    const source =
+      items.length && !items.some((version) => version.id === summarySource.value)
+        ? items[0].id
+        : summarySource.value;
+    const data = await regenerateSummary(meetingId, source, summaryPostToDiscord.value);
+    if (meeting.value) {
+      meeting.value.summary_job = data.job;
+    }
+    scheduleSummaryPoll();
+  } catch (e) {
+    showToast((e && e.message) || "Failed to start the summary generation.", "error");
+  } finally {
+    summaryStarting.value = false;
   }
 }
 
@@ -273,6 +375,9 @@ onUnmounted(() => {
   }
   if (pollTimer !== null) {
     window.clearTimeout(pollTimer);
+  }
+  if (summaryPollTimer !== null) {
+    window.clearTimeout(summaryPollTimer);
   }
   if (audioObjectUrl.value) {
     URL.revokeObjectURL(audioObjectUrl.value);
@@ -523,7 +628,12 @@ onUnmounted(() => {
             </button>
           </div>
         </div>
-        <p v-if="!meeting.has_summary" class="field-hint">
+        <p v-if="summaryFailed && !summaryJobRunning" class="alert warn" role="alert">
+          Generating the summary failed for this meeting — the transcript is safe. Check the
+          summary provider in <router-link to="/settings">Settings</router-link> if needed, then
+          retry below.
+        </p>
+        <p v-else-if="!meeting.has_summary && !summaryJobRunning" class="field-hint">
           No summary file yet — saving will create one.
         </p>
         <div v-if="showSummaryPreview" class="preview-pane markdown-body" v-html="summaryPreview"></div>
@@ -534,12 +644,74 @@ onUnmounted(() => {
           class="field-textarea code-editor"
           rows="16"
           aria-label="Meeting summary"
+          :disabled="summaryJobRunning"
         ></textarea>
         <div class="editor-actions">
-          <button type="button" class="btn primary" :disabled="savingSummary" @click="persistSummary">
+          <button
+            type="button"
+            class="btn primary"
+            :disabled="savingSummary || summaryJobRunning"
+            @click="persistSummary"
+          >
             {{ savingSummary ? "Saving…" : "Save summary" }}
           </button>
         </div>
+
+        <div class="regen-row">
+          <div v-if="versions && versions.items.length >= 2" class="regen-field">
+            <label for="summary-source">Source transcript</label>
+            <select id="summary-source" v-model="summarySource" :disabled="summaryJobRunning">
+              <option v-for="version in versions.items" :key="version.id" :value="version.id">
+                {{ version.label }}
+              </option>
+            </select>
+          </div>
+          <label class="switch summary-post-switch">
+            <input
+              v-model="summaryPostToDiscord"
+              type="checkbox"
+              :disabled="summaryJobRunning"
+            />
+            <span class="switch-track" aria-hidden="true"></span>
+            <span class="switch-thumb" aria-hidden="true"></span>
+            <span class="switch-label">Also post it to the Discord channel</span>
+          </label>
+          <button
+            type="button"
+            class="btn"
+            :class="{ primary: summaryFailed }"
+            :disabled="summaryStarting || summaryJobRunning || !canGenerateSummary"
+            @click="startSummaryRegen"
+          >
+            {{
+              summaryJobRunning
+                ? "Generating…"
+                : summaryFailed
+                  ? "Retry summary"
+                  : meeting.has_summary
+                    ? "Regenerate summary"
+                    : "Generate summary"
+            }}
+          </button>
+        </div>
+        <p class="field-hint">
+          <template v-if="canGenerateSummary">
+            Sends the transcript to the configured summary provider again and replaces the summary
+            above. Participant memory is refreshed too when the meeting never had a summary.
+          </template>
+          <template v-else>
+            This meeting has no transcript, so a summary cannot be generated.
+          </template>
+        </p>
+        <div v-if="summaryJobRunning" class="regen-progress" role="status">
+          <div class="progress-track">
+            <div class="progress-bar indeterminate"></div>
+          </div>
+          <span class="muted">Summarizing the {{ summaryJob.source }}…</span>
+        </div>
+        <p v-else-if="summaryJob && summaryJob.status === 'error'" class="alert" role="alert">
+          Last summary generation failed: {{ summaryJob.error }}
+        </p>
       </section>
 
       <section class="panel">

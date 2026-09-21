@@ -1535,6 +1535,17 @@ tr.clickable {
   margin-bottom: 0;
 }
 
+/* Summary generation row: the switch takes the free space so the action
+   button sits at the end of the row. */
+.summary-post-switch {
+  margin-right: auto;
+}
+
+.alert a {
+  color: inherit;
+  text-decoration: underline;
+}
+
 .regen-progress {
   display: flex;
   align-items: center;

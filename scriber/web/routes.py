@@ -14,6 +14,7 @@ from pydantic import BaseModel
 
 from scriber import audio, config, database
 from scriber.memory import MemoryManager
+from scriber.summary import regen as summary_regen
 from scriber.transcription import providers as stt_providers
 from scriber.transcription import regen
 from scriber.web import api_auth
@@ -64,6 +65,13 @@ class RegenRequest(BaseModel):
     engine: str
     model: str | None = None
     language: str | None = None
+
+
+class SummaryRegenRequest(BaseModel):
+    """Request to (re)generate a meeting summary from one of its transcripts."""
+
+    transcript_id: str = "original"
+    post_to_discord: bool = False
 
 
 # Maximum accepted avatar upload size (5 MB).
@@ -400,11 +408,13 @@ async def list_meetings(
 
 @router.get("/meetings/{meeting_id}")
 async def get_meeting(meeting_id: str, _user: str = Depends(require_auth)) -> dict[str, Any]:
-    """Full meeting row including the generation log."""
+    """Full meeting row including the generation log and the summary job state."""
     row = database.get_meeting(meeting_id)
     if row is None:
         raise HTTPException(status_code=404, detail="Meeting not found")
-    return _with_file_flags(row)
+    data = _with_file_flags(row)
+    data["summary_job"] = summary_regen.get_job(meeting_id)
+    return data
 
 
 @router.get("/meetings/{meeting_id}/transcript")
@@ -514,6 +524,13 @@ async def delete_meeting(meeting_id: str, _user: str = Depends(require_auth)) ->
             detail="A transcript regeneration is running for this meeting — "
             "wait for it to finish before deleting",
         )
+    summary_job = summary_regen.get_job(meeting_id)
+    if summary_job is not None and summary_job.get("status") == "running":
+        raise HTTPException(
+            status_code=409,
+            detail="A summary generation is running for this meeting — "
+            "wait for it to finish before deleting",
+        )
     for column in ("transcript_path", "summary_path"):
         path = _resolve_data_file(row.get(column))
         if path is not None:
@@ -532,6 +549,7 @@ async def delete_meeting(meeting_id: str, _user: str = Depends(require_auth)) ->
     audio.delete_meeting_audio(config.get().data_dir / "audio", meeting_id)
     database.delete_meeting(meeting_id)
     regen.discard_job(meeting_id)
+    summary_regen.discard_job(meeting_id)
     return {"ok": True}
 
 
@@ -549,6 +567,48 @@ async def put_summary(
 ) -> dict[str, bool]:
     """Overwrite the meeting summary file with client-supplied Markdown."""
     return _write_meeting_file(meeting_id, "summary_path", ".md", body.content)
+
+
+@router.post("/meetings/{meeting_id}/summary", status_code=202)
+async def regenerate_summary(
+    meeting_id: str,
+    body: SummaryRegenRequest,
+    request: Request,
+    _user: str = Depends(require_auth),
+) -> dict[str, Any]:
+    """Start (re)generating the summary from a transcript version (background job).
+
+    This is the retry path for a meeting whose summarization failed, and
+    replaces the current summary otherwise. 409 when the meeting is still being
+    processed or a job is already running; 404 when the transcript version does
+    not exist; 400 when no provider is configured or the bot cannot post.
+    """
+    row = database.get_meeting(meeting_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Meeting not found")
+    if row.get("status") in ("recording", "summarizing"):
+        raise HTTPException(
+            status_code=409,
+            detail="Meeting is still being recorded or summarized — wait for it to finish",
+        )
+    path = _resolve_transcript_version(meeting_id, body.transcript_id)
+    if body.transcript_id == "original":
+        source = "original transcript"
+    else:
+        version = database.get_transcript(meeting_id, body.transcript_id)
+        source = f"{version['label']} transcript" if version else "transcript"
+    try:
+        job = summary_regen.start_job(
+            meeting_id,
+            path,
+            source,
+            bot=request.app.state.bot,
+            post_to_discord=body.post_to_discord,
+        )
+    except ValueError as exc:
+        status = 409 if "already running" in str(exc) else 400
+        raise HTTPException(status_code=status, detail=str(exc)) from exc
+    return {"ok": True, "job": job}
 
 
 @router.get("/users")

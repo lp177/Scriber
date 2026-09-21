@@ -388,6 +388,13 @@ Open <http://localhost:8080> and sign in with `ADMIN_USERNAME` /
   and summary, regenerate the transcript with another engine, and compare any
   two transcript versions side by side (see
   [Meeting audio & transcript regeneration](#meeting-audio--transcript-regeneration)).
+  The **Summary** panel can also generate the summary again from any transcript
+  version: when summarization failed at `/scriber stop` it shows a **Retry
+  summary** button (fix the provider in Settings first, no need to re-record),
+  and on a finished meeting **Regenerate summary** replaces the minutes — handy
+  after editing or regenerating the transcript. Optionally the new summary is
+  posted to the meeting's Discord text channel. Participant memory is refreshed
+  when the meeting never had a summary before.
 - **Settings** (⚙️) — edit the dashboard-editable configuration keys: the
   summary provider failover list (provider kind, API key, model and base URL
   for each, plus a **+ Add provider** button to extend the chain), the Whisper
@@ -610,7 +617,24 @@ Rough guidance for CPU with `int8` compute:
 - **Summary fails with an error** — the transcript is never lost: Scriber
   attaches the raw transcript file to the error message in Discord, and it
   stays available in the dashboard. Check `SUMMARY_API_KEY`,
-  `SUMMARY_MODEL` and `SUMMARY_BASE_URL` on the settings page.
+  `SUMMARY_MODEL` and `SUMMARY_BASE_URL` on the settings page, then open the
+  meeting in the dashboard and click **Retry summary**.
+- **A new API key in `.env` is ignored (the old key's error keeps coming
+  back)** — when `.env` is bind-mounted as a single file
+  (`-v ./.env:/app/.env`), the container is attached to that file's *inode*.
+  Editors and tools that save by replacing the file (`vim`, `sed -i`, most
+  config-management tools) create a new inode, so the container keeps reading
+  the old content until it is restarted. Either change keys from the dashboard
+  **Settings** page (applied live, written in place), or restart the container
+  after editing `.env` on the host.
+- **`/scriber stop` answers "There is no active recording session" while a
+  recording is running** (and the logs show `Unknown interaction` or
+  `Interaction has already been acknowledged`) — two Scriber processes are
+  logged in with the same `DISCORD_TOKEN` (an old host that was never shut
+  down, a forgotten dev instance…). Discord delivers each slash command to
+  both; the instance that is *not* holding the recording can answer first.
+  Find and stop the duplicate — or reset the bot token in the Discord
+  Developer Portal and set the new one only on the instance you keep.
 - **Dashboard login fails** — credentials are `ADMIN_USERNAME` /
   `ADMIN_PASSWORD` from your `.env`. If you changed them via the dashboard,
   the new values are in the mounted `.env` file.

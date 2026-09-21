@@ -26,10 +26,11 @@ def recover_interrupted(data_dir: pathlib.Path) -> None:
     """Clean up after a previous process that died mid-meeting.
 
     Runs once at startup, before any new recording can exist. A crash leaves
-    two things behind: meeting rows stuck in ``recording`` (which would block
-    deletion forever) and unfinalized audio spool temp files (which nothing
-    else ever reclaims, ~350 MB per recorded hour). Best-effort: a failure
-    here must never stop the app from starting.
+    two things behind: meeting rows stuck in ``recording`` or ``summarizing``
+    (which would block deletion and summary regeneration forever) and
+    unfinalized audio spool temp files (which nothing else ever reclaims,
+    ~350 MB per recorded hour). Best-effort: a failure here must never stop the
+    app from starting.
     """
     for meeting_id in database.list_meeting_ids_by_status("recording"):
         database.update_meeting(meeting_id, status="error")
@@ -38,6 +39,17 @@ def recover_interrupted(data_dir: pathlib.Path) -> None:
             "Recording was interrupted by a restart; marking the meeting as error.",
         )
         log.warning("Meeting %s was left in 'recording' by a previous run; marked error.",
+                    meeting_id)
+    # Same for a restart in the middle of the summarizer call: the transcript
+    # is already on disk, so the summary can be generated from the dashboard.
+    for meeting_id in database.list_meeting_ids_by_status("summarizing"):
+        database.update_meeting(meeting_id, status="error")
+        database.append_log(
+            meeting_id,
+            "Summarization was interrupted by a restart; the transcript is kept — "
+            "generate the summary again from the dashboard.",
+        )
+        log.warning("Meeting %s was left in 'summarizing' by a previous run; marked error.",
                     meeting_id)
     audio_dir = data_dir / "audio"
     for pattern in ("*.segments.raw", "*.mix.raw"):
