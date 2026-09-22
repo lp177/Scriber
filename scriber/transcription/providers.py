@@ -19,6 +19,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import logging
+import time
 from typing import Awaitable, Callable
 
 import httpx
@@ -34,6 +35,11 @@ log = logging.getLogger(__name__)
 REQUEST_TIMEOUT = 120.0
 #: Concurrent in-flight requests against a cloud STT API.
 API_CONCURRENCY = 4
+#: Retries per segment on a transient failure (rate limit, 5xx, network),
+#: with exponential backoff between attempts (first wait, cap, in seconds).
+API_RETRIES = 8
+API_BACKOFF_FIRST = 2.0
+API_BACKOFF_MAX = 60.0
 #: Segments shorter than this many seconds are skipped (mirrors the live pipeline).
 MIN_SEGMENT_SECONDS = 0.4
 #: Sample rate of the decoded archive segments handed to the engines.
@@ -54,6 +60,18 @@ WHISPER_PROFILES: tuple[str, ...] = (
 
 class TranscriptionProviderError(Exception):
     """Raised when a regeneration engine fails."""
+
+
+class TransientProviderError(TranscriptionProviderError):
+    """A cloud STT call failed in a way worth retrying (429, 5xx, network).
+
+    ``retry_after`` carries the server's ``Retry-After`` hint in seconds when
+    it sent one.
+    """
+
+    def __init__(self, message: str, retry_after: float | None = None) -> None:
+        super().__init__(message)
+        self.retry_after = retry_after
 
 
 def engine_catalog() -> list[dict]:
@@ -205,43 +223,70 @@ async def _api_segments(
 ) -> list[str]:
     """Fan the segments out to a cloud STT API with bounded concurrency.
 
-    Each segment gets one retry (transient network hiccups); a second failure
-    aborts the whole job — cloud STT failures are usually systemic (bad key,
-    quota), and a half-transcribed meeting would be misleading.
+    Transient failures (rate limiting, 5xx, network hiccups) are retried with
+    exponential backoff — and a rate limit pauses *every* worker, so the job
+    self-paces to what the provider allows instead of hammering it. A
+    permanent failure (bad key, quota, unsupported audio) aborts the whole
+    job: those are systemic, and a half-transcribed meeting would be
+    misleading.
     """
     semaphore = asyncio.Semaphore(API_CONCURRENCY)
     caller = _API_CALLERS[engine]
     # Once a segment fails permanently, queued segments short-circuit instead
     # of firing more doomed requests (cloud failures are usually systemic).
     aborted = asyncio.Event()
+    # Shared cooldown: no request is fired before this monotonic deadline.
+    pause_until = 0.0
 
     async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
 
+        async def attempt(segment: np.ndarray) -> str:
+            """One call, mapping network errors to the retryable kind."""
+            try:
+                return await caller(client, provider, model, language, segment)
+            except TranscriptionProviderError:
+                raise
+            except httpx.HTTPError as exc:
+                raise TransientProviderError(f"{engine} request failed: {exc}") from exc
+            except Exception as exc:
+                raise TranscriptionProviderError(f"{engine} transcription failed: {exc}") from exc
+
         async def one(segment: np.ndarray) -> str:
+            nonlocal pause_until
             if _too_short(segment):
                 progress()
                 return ""
             async with semaphore:
-                if aborted.is_set():
-                    raise TranscriptionProviderError(
-                        f"{engine} transcription aborted after an earlier failure"
-                    )
-                try:
+                delay = API_BACKOFF_FIRST
+                for retry in range(API_RETRIES + 1):
+                    if aborted.is_set():
+                        raise TranscriptionProviderError(
+                            f"{engine} transcription aborted after an earlier failure"
+                        )
+                    wait = pause_until - time.monotonic()
+                    if wait > 0:
+                        await asyncio.sleep(wait)
                     try:
-                        text = await caller(client, provider, model, language, segment)
-                    except TranscriptionProviderError:
-                        raise
-                    except Exception as first:
-                        log.warning("%s segment failed (%s); retrying once.", engine, first)
-                        try:
-                            text = await caller(client, provider, model, language, segment)
-                        except Exception as exc:
+                        text = await attempt(segment)
+                    except TransientProviderError as exc:
+                        if retry == API_RETRIES:
+                            aborted.set()
                             raise TranscriptionProviderError(
-                                f"{engine} transcription failed: {exc}"
+                                f"{exc} (gave up after {API_RETRIES} retries)"
                             ) from exc
-                except TranscriptionProviderError:
-                    aborted.set()
-                    raise
+                        hold = exc.retry_after if exc.retry_after else delay
+                        hold = min(max(hold, 1.0), API_BACKOFF_MAX)
+                        pause_until = max(pause_until, time.monotonic() + hold)
+                        log.warning(
+                            "%s segment: %s; retry %d/%d in %.0fs.",
+                            engine, exc, retry + 1, API_RETRIES, hold,
+                        )
+                        delay = min(delay * 2, API_BACKOFF_MAX)
+                        continue
+                    except TranscriptionProviderError:
+                        aborted.set()
+                        raise
+                    break
             progress()
             return text
 
@@ -284,11 +329,25 @@ def _http_detail(response: httpx.Response) -> str:
     return text[:300] if text else response.reason_phrase
 
 
+def _retry_after_seconds(response: httpx.Response) -> float | None:
+    """Parse a numeric ``Retry-After`` header, if any."""
+    value = response.headers.get("retry-after")
+    if not value:
+        return None
+    try:
+        return float(value)
+    except ValueError:
+        return None
+
+
 def _raise_for_status(engine: str, response: httpx.Response) -> None:
-    if response.status_code >= 400:
-        raise TranscriptionProviderError(
-            f"{engine} API returned HTTP {response.status_code}: {_http_detail(response)}"
-        )
+    """Raise on an HTTP error, as retryable for rate limits and server errors."""
+    if response.status_code < 400:
+        return
+    message = f"{engine} API returned HTTP {response.status_code}: {_http_detail(response)}"
+    if response.status_code == 429 or response.status_code >= 500:
+        raise TransientProviderError(message, _retry_after_seconds(response))
+    raise TranscriptionProviderError(message)
 
 
 async def _voxtral_one(
