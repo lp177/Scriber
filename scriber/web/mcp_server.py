@@ -197,13 +197,13 @@ def create_mcp_app(bot: Any | None = None) -> Any:
 
     @server.tool()
     def list_transcript_versions(meeting_id: str) -> dict[str, Any]:
-        """A meeting's transcript versions: the original live transcript (id 'original') plus any versions regenerated from the kept meeting audio with a different engine (Whisper profiles, Voxtral, ElevenLabs Scribe, Google Chirp). Also reports whether regeneration is currently possible and any running regeneration job."""
+        """A meeting's transcript versions: the main transcript (id 'original', flagged main: true — the live recording unless another version was promoted) plus any versions regenerated from the kept meeting audio with a different engine (Whisper profiles, Voxtral, ElevenLabs Scribe, Google Chirp). Also reports whether regeneration is currently possible and any running regeneration job."""
         return _call(dash._transcript_versions, meeting_id)
 
     @server.tool()
     def get_transcript_version(meeting_id: str, transcript_id: str) -> str:
-        """The text of one transcript version. Use transcript_id 'original' for the live transcript, or an id from list_transcript_versions for a regenerated one."""
-        path = _call(dash._resolve_transcript_version, meeting_id, transcript_id)
+        """The text of one transcript version. Use transcript_id 'original' for the main transcript, or an id from list_transcript_versions for a regenerated one."""
+        path, _label = _call(dash._resolve_transcript_version, meeting_id, transcript_id)
         try:
             return path.read_text(encoding="utf-8")
         except OSError as exc:

@@ -10,6 +10,7 @@ import {
   fetchText,
   getMeeting,
   getTranscriptVersions,
+  promoteTranscriptVersion,
   regenerateSummary,
   regenerateTranscript,
   saveSummary,
@@ -123,6 +124,36 @@ const selectedEngine = computed(
 
 const jobRunning = computed(() => versions.value?.job?.status === "running");
 
+/** Reload the editor's transcript after the main transcript changed. */
+async function reloadMainTranscript() {
+  try {
+    transcriptDraft.value = await fetchText(transcriptUrl(meetingId));
+    if (meeting.value) {
+      meeting.value.has_transcript = true;
+    }
+  } catch {
+    // Keep the editor as is; a page reload will resync it.
+  }
+}
+
+async function promoteVersion(version) {
+  if (
+    !window.confirm(
+      `Use "${version.label}" as the main transcript? It becomes the transcript shown ` +
+        "above and used by default for summaries; the current main one is kept as a version.",
+    )
+  ) {
+    return;
+  }
+  try {
+    await promoteTranscriptVersion(meetingId, version.id);
+    await Promise.all([refreshVersions(), reloadMainTranscript()]);
+    showToast(`"${version.label}" is now the main transcript.`, "success");
+  } catch (e) {
+    showToast((e && e.message) || "Failed to change the main transcript.", "error");
+  }
+}
+
 /** Show the versions panel only when it adds something over the editor above. */
 const showVersionsPanel = computed(() => {
   const data = versions.value;
@@ -205,7 +236,11 @@ async function downloadVersion(version) {
 }
 
 async function removeVersion(version) {
-  if (!window.confirm(`Delete the "${version.label}" transcript version?`)) {
+  const question = version.main
+    ? `Delete the main transcript "${version.label}"? The most recent other version ` +
+      "becomes the main one. This cannot be undone."
+    : `Delete the "${version.label}" transcript version? This cannot be undone.`;
+  if (!window.confirm(question)) {
     return;
   }
   try {
@@ -214,6 +249,9 @@ async function removeVersion(version) {
       summarySource.value = "original";
     }
     await refreshVersions();
+    if (version.main) {
+      await reloadMainTranscript();
+    }
     showToast("Transcript version deleted.", "success");
   } catch (e) {
     showToast((e && e.message) || "Failed to delete the transcript version.", "error");
@@ -530,7 +568,10 @@ onUnmounted(() => {
         <ul v-if="versions.items.length" class="version-list">
           <li v-for="version in versions.items" :key="version.id" class="version-item">
             <div class="version-meta">
-              <span class="version-title">{{ version.label }}</span>
+              <span class="version-title">
+                {{ version.label }}
+                <span v-if="version.main" class="badge completed version-main">main</span>
+              </span>
               <span class="version-sub">
                 {{ version.created_at ? formatDate(version.created_at) : "" }}
               </span>
@@ -540,9 +581,19 @@ onUnmounted(() => {
                 Download
               </button>
               <button
-                v-if="version.id !== 'original'"
+                v-if="!version.main"
+                type="button"
+                class="btn ghost"
+                :disabled="jobRunning || summaryJobRunning"
+                @click="promoteVersion(version)"
+              >
+                Use as main
+              </button>
+              <button
+                v-if="versions.items.length >= 2"
                 type="button"
                 class="btn ghost danger-btn"
+                :disabled="jobRunning || summaryJobRunning"
                 @click="removeVersion(version)"
               >
                 Delete
@@ -604,9 +655,11 @@ onUnmounted(() => {
           </div>
           <p class="field-hint">
             Re-transcribes the saved audio with the chosen engine and adds the result as a new
-            version — the original transcript is never overwritten. Language: <code>auto</code>
-            or a code such as <code>en</code>, <code>fr</code> (Google prefers
-            <code>fr-FR</code>-style codes).
+            version — nothing is overwritten. The <strong>main</strong> version is the one shown
+            in the editor, served by the API and used by default for summaries; use
+            <em>Use as main</em> to switch to a better one, then delete the versions you no
+            longer need. Language: <code>auto</code> or a code such as <code>en</code>,
+            <code>fr</code> (Google prefers <code>fr-FR</code>-style codes).
           </p>
 
           <div v-if="jobRunning" class="regen-progress" role="status">

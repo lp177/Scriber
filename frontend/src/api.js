@@ -152,7 +152,18 @@ export async function regenerateTranscript(id, engine, model, language) {
   ).json();
 }
 
-/** DELETE /api/meetings/{id}/transcripts/{tid} — remove a generated version. */
+/** POST /api/meetings/{id}/transcripts/{tid}/promote — make a version the main transcript. */
+export async function promoteTranscriptVersion(id, transcriptId) {
+  return (
+    await request(
+      `/api/meetings/${encodeURIComponent(id)}/transcripts/${encodeURIComponent(transcriptId)}/promote`,
+      { method: "POST" },
+    )
+  ).json();
+}
+
+/** DELETE /api/meetings/{id}/transcripts/{tid} — remove a version ("original" = the
+ *  main one; the newest remaining version is then promoted). Returns the new list. */
 export async function deleteTranscriptVersion(id, transcriptId) {
   return (
     await request(

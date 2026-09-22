@@ -121,7 +121,7 @@ async def meeting_audio(
 async def transcript_versions(
     meeting_id: str, _t: dict = Depends(require_api_token)
 ) -> dict[str, Any]:
-    """List the meeting's transcript versions (original + regenerated)."""
+    """List the meeting's transcript versions (main, flagged ``main``, + regenerated)."""
     return dash._transcript_versions(meeting_id)
 
 
@@ -130,7 +130,7 @@ async def transcript_version(
     meeting_id: str, transcript_id: str, download: int = 0,
     _t: dict = Depends(require_api_token),
 ) -> Response:
-    """Serve one transcript version (``original`` or a generated version id)."""
+    """Serve one transcript version (``original`` = the main one, or a generated version id)."""
     return dash._serve_transcript_version(meeting_id, transcript_id, download=bool(download))
 
 

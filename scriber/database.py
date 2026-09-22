@@ -30,6 +30,8 @@ _COLUMNS: tuple[str, ...] = (
     "duration_seconds",
     "status",
     "transcript_path",
+    "transcript_engine",
+    "transcript_label",
     "summary_path",
     "audio_path",
     "log",
@@ -54,6 +56,8 @@ CREATE TABLE IF NOT EXISTS meetings (
     duration_seconds REAL,
     status TEXT,
     transcript_path TEXT,
+    transcript_engine TEXT,
+    transcript_label TEXT,
     summary_path TEXT,
     audio_path TEXT,
     log TEXT DEFAULT '',
@@ -86,8 +90,11 @@ CREATE TABLE IF NOT EXISTS meeting_participants (
 """
 
 # Alternate transcript versions regenerated from the saved meeting audio with a
-# different engine/model. The ORIGINAL live transcript stays on
-# ``meetings.transcript_path`` — rows here are additional versions.
+# different engine/model. The MAIN transcript (the one the editor, the API and
+# the summaries use) stays on ``meetings.transcript_path`` — initially the live
+# recording, described by ``transcript_engine`` / ``transcript_label`` (both
+# NULL for a live original) — rows here are the additional versions. Any
+# version can be promoted to main (see ``promote_transcript``).
 _TRANSCRIPTS_SCHEMA = """
 CREATE TABLE IF NOT EXISTS meeting_transcripts (
     id TEXT PRIMARY KEY,
@@ -156,6 +163,10 @@ def _migrate(conn: sqlite3.Connection) -> None:
     meeting_cols = {row["name"] for row in conn.execute("PRAGMA table_info(meetings)")}
     if "audio_path" not in meeting_cols:
         conn.execute("ALTER TABLE meetings ADD COLUMN audio_path TEXT")
+    if "transcript_engine" not in meeting_cols:
+        conn.execute("ALTER TABLE meetings ADD COLUMN transcript_engine TEXT")
+    if "transcript_label" not in meeting_cols:
+        conn.execute("ALTER TABLE meetings ADD COLUMN transcript_label TEXT")
 
 
 def close() -> None:
@@ -322,6 +333,55 @@ def get_transcript(meeting_id: str, transcript_id: str) -> dict | None:
             (transcript_id, meeting_id),
         ).fetchone()
     return dict(row) if row is not None else None
+
+
+def promote_transcript(meeting_id: str, transcript_id: str, demoted_id: str) -> dict | None:
+    """Make an alternate version the meeting's main transcript, in one transaction.
+
+    The version row becomes ``meetings.transcript_path`` (with its engine and
+    label) and the previous main transcript is kept as an alternate version
+    row under ``demoted_id`` (labelled "Original (live recording)" when it was
+    the live one). Returns the demoted row, or None when the version does not
+    exist or the meeting has no main transcript to swap with.
+    """
+    now = _utcnow()
+    with _lock:
+        conn = _require_conn()
+        version = conn.execute(
+            "SELECT * FROM meeting_transcripts WHERE id = ? AND meeting_id = ?",
+            (transcript_id, meeting_id),
+        ).fetchone()
+        meeting = conn.execute(
+            "SELECT transcript_path, transcript_engine, transcript_label, ended_at "
+            "FROM meetings WHERE id = ?",
+            (meeting_id,),
+        ).fetchone()
+        if version is None or meeting is None or not meeting["transcript_path"]:
+            return None
+        demoted = {
+            "id": demoted_id,
+            "meeting_id": meeting_id,
+            "engine": meeting["transcript_engine"] or "whisper",
+            "label": meeting["transcript_label"] or "Original (live recording)",
+            "path": meeting["transcript_path"],
+            "created_at": meeting["ended_at"] or now,
+        }
+        conn.execute(
+            "INSERT INTO meeting_transcripts (id, meeting_id, engine, label, path, created_at) "
+            "VALUES (:id, :meeting_id, :engine, :label, :path, :created_at)",
+            demoted,
+        )
+        conn.execute(
+            "UPDATE meetings SET transcript_path = ?, transcript_engine = ?, "
+            "transcript_label = ? WHERE id = ?",
+            (version["path"], version["engine"], version["label"], meeting_id),
+        )
+        conn.execute(
+            "DELETE FROM meeting_transcripts WHERE id = ? AND meeting_id = ?",
+            (transcript_id, meeting_id),
+        )
+        conn.commit()
+    return demoted
 
 
 def delete_transcript(meeting_id: str, transcript_id: str) -> bool:

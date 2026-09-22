@@ -430,8 +430,8 @@ uncompressed WAV files, which work the same but are much larger.
 
 On a meeting's page (when its audio is kept), pick an engine + model and hit
 **Regenerate transcript**. The archived segments are re-transcribed and the
-result is stored as a **new transcript version** next to the original — the
-original live transcript is never overwritten. Available engines:
+result is stored as a **new transcript version** next to the existing ones —
+nothing is overwritten. Available engines:
 
 | Engine | Runs | Needs |
 | --- | --- | --- |
@@ -441,10 +441,19 @@ original live transcript is never overwritten. Available engines:
 | **Google Chirp** (Speech-to-Text v2) | cloud | `GOOGLE_SPEECH_API_KEY` + `GOOGLE_SPEECH_PROJECT` |
 
 Cloud keys are configured in **Settings** (or `.env`) and audio segments are
-only sent to a cloud engine when you explicitly regenerate with it. Once a
-meeting has two or more versions, **Compare side by side** opens a split view
-with a version picker above each pane — handy for judging which engine/model
-transcribes your meetings best.
+only sent to a cloud engine when you explicitly regenerate with it. Cloud
+rate limits are handled with retries and backoff, so a long meeting on a
+rate-limited plan simply takes longer. Once a meeting has two or more
+versions, **Compare side by side** opens a split view with a version picker
+above each pane — handy for judging which engine/model transcribes your
+meetings best.
+
+One version is the meeting's **main** transcript (badge *Main*): the one shown
+in the editor, served by the API and MCP, and used by default to generate the
+summary. It is the live recording at first; **Use as main** switches to a
+better version (the previous main is kept as a version), and any version —
+the live original included — can be **deleted** as long as one remains.
+Deleting the main one promotes the most recent remaining version.
 
 ## API
 

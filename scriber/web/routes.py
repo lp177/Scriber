@@ -166,11 +166,22 @@ def _serve_meeting_audio(meeting_id: str, download: bool) -> Response:
     return FileResponse(path, media_type=media_type)
 
 
+#: Pseudo-id of a meeting's main transcript (``meetings.transcript_path``) in
+#: the transcript-version API. Historically the live recording, hence the name;
+#: any regenerated version can be promoted to main and takes this id over.
+MAIN_TRANSCRIPT_ID = "original"
+
+
+def _main_transcript_label(row: dict[str, Any]) -> str:
+    """Display label of a meeting's main transcript."""
+    return row.get("transcript_label") or "Original (live recording)"
+
+
 def _transcript_versions(meeting_id: str) -> dict[str, Any]:
     """List a meeting's transcript versions plus regeneration state.
 
-    The original live transcript is presented as the pseudo-version
-    ``"original"``; alternate versions come from the ``meeting_transcripts``
+    The main transcript is presented as the pseudo-version ``"original"`` with
+    ``main: true``; alternate versions come from the ``meeting_transcripts``
     table. Embeds the active/last regeneration job and the engine catalog so
     the dashboard needs a single request.
     """
@@ -181,10 +192,11 @@ def _transcript_versions(meeting_id: str) -> dict[str, Any]:
     if _resolve_data_file(row.get("transcript_path")) is not None:
         items.append(
             {
-                "id": "original",
-                "engine": "whisper",
-                "label": "Original (live recording)",
+                "id": MAIN_TRANSCRIPT_ID,
+                "engine": row.get("transcript_engine") or "whisper",
+                "label": _main_transcript_label(row),
                 "created_at": row.get("ended_at"),
+                "main": True,
             }
         )
     items.extend(
@@ -193,6 +205,7 @@ def _transcript_versions(meeting_id: str) -> dict[str, Any]:
             "engine": version["engine"],
             "label": version["label"],
             "created_at": version["created_at"],
+            "main": False,
         }
         for version in database.list_transcripts(meeting_id)
         if _resolve_data_file(version.get("path")) is not None
@@ -206,24 +219,65 @@ def _transcript_versions(meeting_id: str) -> dict[str, Any]:
     }
 
 
-def _resolve_transcript_version(meeting_id: str, transcript_id: str) -> Path:
-    """Return the file of a transcript version (``"original"`` or a row id)."""
+def _resolve_transcript_version(meeting_id: str, transcript_id: str) -> tuple[Path, str]:
+    """Return the file and label of a transcript version (``"original"`` or a row id)."""
     row = database.get_meeting(meeting_id)
     if row is None:
         raise HTTPException(status_code=404, detail="Meeting not found")
-    if transcript_id == "original":
+    if transcript_id == MAIN_TRANSCRIPT_ID:
         path = _resolve_data_file(row.get("transcript_path"))
+        label = _main_transcript_label(row)
     else:
         version = database.get_transcript(meeting_id, transcript_id)
         path = _resolve_data_file(version.get("path")) if version is not None else None
+        label = version["label"] if version is not None else ""
     if path is None:
         raise HTTPException(status_code=404, detail="Transcript version not found")
-    return path
+    return path, label
+
+
+def _require_no_transcript_job(meeting_id: str) -> None:
+    """409 while a job that reads or writes this meeting's transcripts runs."""
+    job = regen.get_job(meeting_id)
+    if job is not None and job.get("status") == "running":
+        raise HTTPException(
+            status_code=409,
+            detail="A transcript regeneration is running for this meeting — wait for it to finish",
+        )
+    summary_job = summary_regen.get_job(meeting_id)
+    if summary_job is not None and summary_job.get("status") == "running":
+        raise HTTPException(
+            status_code=409,
+            detail="A summary generation is running for this meeting — wait for it to finish",
+        )
+
+
+def _promote_transcript(meeting_id: str, transcript_id: str) -> dict[str, Any]:
+    """Make an alternate version the main transcript; return the demoted version row."""
+    demoted = database.promote_transcript(meeting_id, transcript_id, secrets.token_hex(4))
+    if demoted is None:
+        raise HTTPException(status_code=404, detail="Transcript version not found")
+    database.append_log(
+        meeting_id,
+        f"Main transcript is now the {database.get_meeting(meeting_id)['transcript_label']} "
+        f"version (previous main kept as '{demoted['label']}').",
+    )
+    return demoted
+
+
+def _delete_transcript_file(meeting_id: str, path_value: Any) -> None:
+    """Best-effort removal of a transcript version's file."""
+    path = _resolve_data_file(path_value)
+    if path is not None:
+        try:
+            path.unlink()
+        except OSError:
+            logger.warning("Failed to delete transcript file %s for meeting %s", path, meeting_id)
 
 
 def _serve_transcript_version(meeting_id: str, transcript_id: str, download: bool) -> Response:
     """Serve one transcript version as plain text, or as a download."""
-    path = _resolve_transcript_version(meeting_id, transcript_id)
+    path, _label = _resolve_transcript_version(meeting_id, transcript_id)
     if download:
         return FileResponse(path, media_type="text/plain", filename=path.name)
     try:
@@ -489,24 +543,63 @@ async def regenerate_transcript(
     return {"ok": True, "job": job}
 
 
+@router.post("/meetings/{meeting_id}/transcripts/{transcript_id}/promote")
+async def promote_transcript_version(
+    meeting_id: str, transcript_id: str, _user: str = Depends(require_auth)
+) -> dict[str, Any]:
+    """Make a regenerated version the meeting's main transcript.
+
+    The main transcript is what the editor, the public API and MCP serve and
+    the default source of summaries. The previous main is kept as an alternate
+    version. 409 while a transcript or summary job runs for the meeting.
+    """
+    if database.get_meeting(meeting_id) is None:
+        raise HTTPException(status_code=404, detail="Meeting not found")
+    if transcript_id == MAIN_TRANSCRIPT_ID:
+        raise HTTPException(status_code=400, detail="This is already the main transcript")
+    _require_no_transcript_job(meeting_id)
+    _promote_transcript(meeting_id, transcript_id)
+    return {"ok": True, **_transcript_versions(meeting_id)}
+
+
 @router.delete("/meetings/{meeting_id}/transcripts/{transcript_id}")
 async def delete_transcript_version(
     meeting_id: str, transcript_id: str, _user: str = Depends(require_auth)
-) -> dict[str, bool]:
-    """Delete a regenerated transcript version (the original cannot be deleted)."""
-    if transcript_id == "original":
-        raise HTTPException(status_code=400, detail="The original transcript cannot be deleted")
+) -> dict[str, Any]:
+    """Delete a transcript version, main included, as long as another one remains.
+
+    Deleting the main transcript first promotes the most recent remaining
+    version (a regenerated transcript is often better than the live one), so
+    the meeting always keeps a main transcript. 400 for the only version.
+    """
+    row = database.get_meeting(meeting_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Meeting not found")
+    _require_no_transcript_job(meeting_id)
+    if transcript_id == MAIN_TRANSCRIPT_ID:
+        if _resolve_data_file(row.get("transcript_path")) is None:
+            raise HTTPException(status_code=404, detail="Transcript version not found")
+        others = [
+            v for v in database.list_transcripts(meeting_id)
+            if _resolve_data_file(v.get("path")) is not None
+        ]
+        if not others:
+            raise HTTPException(
+                status_code=400,
+                detail="The only transcript of a meeting cannot be deleted — regenerate "
+                "another version first",
+            )
+        # Newest remaining version becomes main; the old main is then a
+        # regular version row, deleted below like any other.
+        demoted = _promote_transcript(meeting_id, others[-1]["id"])
+        transcript_id = demoted["id"]
     version = database.get_transcript(meeting_id, transcript_id)
     if version is None:
         raise HTTPException(status_code=404, detail="Transcript version not found")
-    path = _resolve_data_file(version.get("path"))
-    if path is not None:
-        try:
-            path.unlink()
-        except OSError:
-            logger.warning("Failed to delete transcript file %s", path)
+    _delete_transcript_file(meeting_id, version.get("path"))
     database.delete_transcript(meeting_id, transcript_id)
-    return {"ok": True}
+    database.append_log(meeting_id, f"Deleted the '{version['label']}' transcript version.")
+    return {"ok": True, **_transcript_versions(meeting_id)}
 
 
 @router.delete("/meetings/{meeting_id}")
@@ -519,20 +612,7 @@ async def delete_meeting(meeting_id: str, _user: str = Depends(require_auth)) ->
         raise HTTPException(
             status_code=409, detail="Meeting is currently recording and cannot be deleted"
         )
-    job = regen.get_job(meeting_id)
-    if job is not None and job.get("status") == "running":
-        raise HTTPException(
-            status_code=409,
-            detail="A transcript regeneration is running for this meeting — "
-            "wait for it to finish before deleting",
-        )
-    summary_job = summary_regen.get_job(meeting_id)
-    if summary_job is not None and summary_job.get("status") == "running":
-        raise HTTPException(
-            status_code=409,
-            detail="A summary generation is running for this meeting — "
-            "wait for it to finish before deleting",
-        )
+    _require_no_transcript_job(meeting_id)
     for column in ("transcript_path", "summary_path"):
         path = _resolve_data_file(row.get(column))
         if path is not None:
@@ -593,12 +673,8 @@ async def regenerate_summary(
             status_code=409,
             detail="Meeting is still being recorded or summarized — wait for it to finish",
         )
-    path = _resolve_transcript_version(meeting_id, body.transcript_id)
-    if body.transcript_id == "original":
-        source = "original transcript"
-    else:
-        version = database.get_transcript(meeting_id, body.transcript_id)
-        source = f"{version['label']} transcript" if version else "transcript"
+    path, label = _resolve_transcript_version(meeting_id, body.transcript_id)
+    source = f"{label} transcript"
     try:
         job = summary_regen.start_job(
             meeting_id,

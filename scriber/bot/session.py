@@ -17,6 +17,7 @@ from discord.ext import voice_recv
 
 from scriber import config, database
 from scriber.audio import AudioArchive
+from scriber.transcription import live
 from scriber.bot.recorder import SegmentingSink
 
 if TYPE_CHECKING:
@@ -415,12 +416,17 @@ class MeetingSession:
             log.warning("Meeting %s: participant avatar sync failed.", self.meeting_id, exc_info=True)
 
         participant_count = len(self.participant_names)
+        # Remember which engine produced the live transcript (the config may
+        # change later); a cloud engine may still have fallen back to Whisper
+        # on individual segments.
+        live_engine = live.effective_engine(config.get())
         database.update_meeting(
             self.meeting_id,
             status="summarizing",
             ended_at=ended_at.isoformat(),
             duration_seconds=duration,
             transcript_path=str(path),
+            transcript_engine=live_engine,
             audio_path=str(self.audio_path) if self.audio_path is not None else None,
             segment_count=len(self.entries),
             word_count=word_count,
@@ -428,8 +434,9 @@ class MeetingSession:
         )
         database.append_log(
             self.meeting_id,
-            f"Recording stopped; transcript written ({len(self.entries)} segments, "
-            f"{word_count} words, {participant_count} participants).",
+            f"Recording stopped; transcript written by {live.ENGINE_LABELS[live_engine]} "
+            f"({len(self.entries)} segments, {word_count} words, "
+            f"{participant_count} participants).",
         )
         log.info("Meeting %s: transcript written to %s.", self.meeting_id, path)
 
