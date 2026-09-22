@@ -55,6 +55,7 @@ async function load() {
   try {
     const data = await getMeeting(meetingId);
     meeting.value = data;
+    summaryRefreshMemory.value = !data.has_summary;
     transcriptDraft.value = data.has_transcript ? await fetchText(transcriptUrl(meetingId)) : "";
     summaryDraft.value = data.has_summary ? await fetchText(summaryUrl(meetingId)) : "";
   } catch (e) {
@@ -222,11 +223,20 @@ async function removeVersion(version) {
 // ---- Summary (re)generation: the retry path when summarization failed ----
 const summarySource = ref("original");
 const summaryPostToDiscord = ref(false);
+// Participant memory is normally refreshed once per meeting (at /scriber stop),
+// so the switch defaults on only when the meeting never got a summary.
+const summaryRefreshMemory = ref(false);
 const summaryStarting = ref(false);
 let summaryPollTimer = null;
+// True once the summary text of the running job has been loaded into the editor.
+let summaryLoadedForJob = false;
 
 const summaryJob = computed(() => meeting.value?.summary_job || null);
 const summaryJobRunning = computed(() => summaryJob.value?.status === "running");
+/** The summary itself is being written (edits would be lost); memory phase is fine. */
+const summaryBusy = computed(
+  () => summaryJobRunning.value && summaryJob.value?.phase !== "memory",
+);
 /** Summarization failed at /scriber stop: the transcript exists but no summary does. */
 const summaryFailed = computed(
   () =>
@@ -266,19 +276,27 @@ async function refreshSummaryJob() {
   }
   meeting.value = data;
   const job = data.summary_job;
-  if (job && job.status === "running") {
-    scheduleSummaryPoll();
-    return;
-  }
-  if (job && job.status === "done") {
+  const summaryReady =
+    job && (job.status === "done" || (job.status === "running" && job.phase === "memory"));
+  // Show the new minutes as soon as they exist, even while memory is refreshing.
+  if (summaryReady && !summaryLoadedForJob) {
+    summaryLoadedForJob = true;
     try {
       summaryDraft.value = await fetchText(summaryUrl(meetingId));
       showSummaryPreview.value = true;
     } catch {
       // The summary was written server-side; a reload will show it.
     }
+  }
+  if (job && job.status === "running") {
+    scheduleSummaryPoll();
+    return;
+  }
+  if (job && job.status === "done") {
+    const memory = job.refresh_memory ? " Participant memory refreshed." : "";
     const posted = job.posted === false ? " Posting it to Discord failed — see the log." : "";
-    showToast(`Summary generated.${posted}`, job.posted === false ? "error" : "success");
+    showToast(`Summary generated.${memory}${posted}`, job.posted === false ? "error" : "success");
+    summaryRefreshMemory.value = false;
   } else if (job && job.status === "error") {
     showToast(job.error || "Summary generation failed.", "error");
   }
@@ -302,10 +320,16 @@ async function startSummaryRegen() {
       items.length && !items.some((version) => version.id === summarySource.value)
         ? items[0].id
         : summarySource.value;
-    const data = await regenerateSummary(meetingId, source, summaryPostToDiscord.value);
+    const data = await regenerateSummary(
+      meetingId,
+      source,
+      summaryPostToDiscord.value,
+      summaryRefreshMemory.value,
+    );
     if (meeting.value) {
       meeting.value.summary_job = data.job;
     }
+    summaryLoadedForJob = false;
     scheduleSummaryPoll();
   } catch (e) {
     showToast((e && e.message) || "Failed to start the summary generation.", "error");
@@ -644,13 +668,13 @@ onUnmounted(() => {
           class="field-textarea code-editor"
           rows="16"
           aria-label="Meeting summary"
-          :disabled="summaryJobRunning"
+          :disabled="summaryBusy"
         ></textarea>
         <div class="editor-actions">
           <button
             type="button"
             class="btn primary"
-            :disabled="savingSummary || summaryJobRunning"
+            :disabled="savingSummary || summaryBusy"
             @click="persistSummary"
           >
             {{ savingSummary ? "Saving…" : "Save summary" }}
@@ -666,16 +690,28 @@ onUnmounted(() => {
               </option>
             </select>
           </div>
-          <label class="switch summary-post-switch">
-            <input
-              v-model="summaryPostToDiscord"
-              type="checkbox"
-              :disabled="summaryJobRunning"
-            />
-            <span class="switch-track" aria-hidden="true"></span>
-            <span class="switch-thumb" aria-hidden="true"></span>
-            <span class="switch-label">Also post it to the Discord channel</span>
-          </label>
+          <div class="summary-options">
+            <label class="switch">
+              <input
+                v-model="summaryRefreshMemory"
+                type="checkbox"
+                :disabled="summaryJobRunning"
+              />
+              <span class="switch-track" aria-hidden="true"></span>
+              <span class="switch-thumb" aria-hidden="true"></span>
+              <span class="switch-label">Refresh participant memory</span>
+            </label>
+            <label class="switch">
+              <input
+                v-model="summaryPostToDiscord"
+                type="checkbox"
+                :disabled="summaryJobRunning"
+              />
+              <span class="switch-track" aria-hidden="true"></span>
+              <span class="switch-thumb" aria-hidden="true"></span>
+              <span class="switch-label">Post it to the Discord channel</span>
+            </label>
+          </div>
           <button
             type="button"
             class="btn"
@@ -696,8 +732,9 @@ onUnmounted(() => {
         </div>
         <p class="field-hint">
           <template v-if="canGenerateSummary">
-            Sends the transcript to the configured summary provider again and replaces the summary
-            above. Participant memory is refreshed too when the meeting never had a summary.
+            Sends the chosen transcript to the configured summary provider and replaces the summary
+            above. Memory is refreshed automatically at <code>/scriber stop</code>; turn it on here to
+            update the participants' memory files from the new summary (one AI call per participant).
           </template>
           <template v-else>
             This meeting has no transcript, so a summary cannot be generated.
@@ -705,9 +742,25 @@ onUnmounted(() => {
         </p>
         <div v-if="summaryJobRunning" class="regen-progress" role="status">
           <div class="progress-track">
-            <div class="progress-bar indeterminate"></div>
+            <div
+              class="progress-bar"
+              :class="{ indeterminate: summaryJob.phase !== 'memory' || !summaryJob.memory_total }"
+              :style="
+                summaryJob.phase === 'memory' && summaryJob.memory_total
+                  ? {
+                      width: `${Math.round((100 * summaryJob.memory_done) / summaryJob.memory_total)}%`,
+                    }
+                  : {}
+              "
+            ></div>
           </div>
-          <span class="muted">Summarizing the {{ summaryJob.source }}…</span>
+          <span class="muted">
+            <template v-if="summaryJob.phase === 'memory'">
+              Summary ready — refreshing participant memory
+              {{ summaryJob.memory_done }}/{{ summaryJob.memory_total }}…
+            </template>
+            <template v-else>Summarizing the {{ summaryJob.source }}…</template>
+          </span>
         </div>
         <p v-else-if="summaryJob && summaryJob.status === 'error'" class="alert" role="alert">
           Last summary generation failed: {{ summaryJob.error }}

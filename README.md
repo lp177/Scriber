@@ -392,9 +392,11 @@ Open <http://localhost:8080> and sign in with `ADMIN_USERNAME` /
   version: when summarization failed at `/scriber stop` it shows a **Retry
   summary** button (fix the provider in Settings first, no need to re-record),
   and on a finished meeting **Regenerate summary** replaces the minutes — handy
-  after editing or regenerating the transcript. Optionally the new summary is
-  posted to the meeting's Discord text channel. Participant memory is refreshed
-  when the meeting never had a summary before.
+  after editing or regenerating the transcript. Two switches: **Refresh
+  participant memory** (on by default only when the meeting never had a
+  summary, since memory is normally refreshed once at `/scriber stop`; turn it
+  on to update the memory files from a better summary) and **Post it to the
+  Discord channel**.
 - **Settings** (⚙️) — edit the dashboard-editable configuration keys: the
   summary provider failover list (provider kind, API key, model and base URL
   for each, plus a **+ Add provider** button to extend the chain), the Whisper

@@ -255,11 +255,15 @@ export async function saveSummary(id, content) {
 }
 
 /** POST /api/meetings/{id}/summary — start a summary generation job; returns {ok, job}. */
-export async function regenerateSummary(id, transcriptId, postToDiscord) {
+export async function regenerateSummary(id, transcriptId, postToDiscord, refreshMemory) {
   return (
     await request(`/api/meetings/${encodeURIComponent(id)}/summary`, {
       method: "POST",
-      body: JSON.stringify({ transcript_id: transcriptId, post_to_discord: postToDiscord }),
+      body: JSON.stringify({
+        transcript_id: transcriptId,
+        post_to_discord: postToDiscord,
+        refresh_memory: refreshMemory,
+      }),
     })
   ).json();
 }

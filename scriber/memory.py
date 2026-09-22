@@ -42,8 +42,10 @@ MEMORY_SYSTEM_PROMPT = (
     '  "## Profile" (name / aliases, role),\n'
     '  "## Projects & topics",\n'
     '  "## Key facts",\n'
-    '  "## Recent meetings" (append one short dated bullet per meeting, keeping '
-    "only the ~8 most recent).\n"
+    '  "## Recent meetings" (one short dated bullet per meeting, in '
+    "chronological order, keeping only the ~8 most recent; when a bullet for "
+    "the same meeting date already exists, replace it instead of adding a "
+    "duplicate — a meeting may be summarized again).\n"
     "Output ONLY the Markdown file content: no code fences, no preamble, no "
     "commentary."
 )

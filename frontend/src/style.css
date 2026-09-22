@@ -1535,9 +1535,12 @@ tr.clickable {
   margin-bottom: 0;
 }
 
-/* Summary generation row: the switch takes the free space so the action
+/* Summary generation row: the switches take the free space so the action
    button sits at the end of the row. */
-.summary-post-switch {
+.summary-options {
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: 24px;
   margin-right: auto;
 }
 

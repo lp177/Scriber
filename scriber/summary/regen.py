@@ -27,7 +27,8 @@ from scriber.summary.summarizer import Summarizer, SummaryError
 log = logging.getLogger(__name__)
 
 #: Active/last job per meeting id. Shape:
-#: {status: running|done|error, source, error, posted, started_at}
+#: {status: running|done|error, phase: summary|memory, source, error, posted,
+#:  refresh_memory, memory_done, memory_total, started_at}
 _JOBS: dict[str, dict] = {}
 #: Strong references to the running tasks (the event loop only keeps weak ones).
 _TASKS: set[asyncio.Task[None]] = set()
@@ -59,13 +60,15 @@ def start_job(
     *,
     bot: Any | None = None,
     post_to_discord: bool = False,
+    refresh_memory: bool | None = None,
 ) -> dict:
     """Validate and launch a summary generation job for a meeting.
 
     ``transcript_path`` is the (already validated) transcript version to
     summarize and ``source_label`` its display name. With ``post_to_discord``
     the finished summary is also sent to the meeting's text channel through
-    ``bot``.
+    ``bot``. ``refresh_memory`` forces (True) or skips (False) the participant
+    memory refresh; None refreshes only when the meeting had no summary yet.
 
     Raises ValueError with a user-presentable message when the request cannot
     be started (job already running, no provider, bot unavailable for posting).
@@ -85,9 +88,13 @@ def start_job(
 
     job = {
         "status": "running",
+        "phase": "summary",
         "source": source_label,
         "error": None,
         "posted": None,
+        "refresh_memory": refresh_memory,
+        "memory_done": 0,
+        "memory_total": 0,
         "started_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
     }
     _JOBS[meeting_id] = job
@@ -120,11 +127,13 @@ async def _run_job(
 
     if bot is not None:
         job["posted"] = await _post_to_discord(bot, meeting_id, follow_up)
-    # The summary is delivered: flip the job before the (slow) memory refresh so
-    # the dashboard shows the new minutes right away.
-    job["status"] = "done"
+    # The summary is delivered: switch to the (slow) memory phase so the
+    # dashboard can show the new minutes while the refresh runs.
     if follow_up["refresh_memory"]:
-        await _refresh_memories(meeting_id, follow_up)
+        job["phase"] = "memory"
+        job["memory_total"] = len(follow_up["participants"])
+        await _refresh_memories(meeting_id, follow_up, job)
+    job["status"] = "done"
 
 
 async def _summarize(meeting_id: str, job: dict, transcript_path: Path) -> dict:
@@ -167,6 +176,12 @@ async def _summarize(meeting_id: str, job: dict, transcript_path: Path) -> dict:
         f"Summary generated from the dashboard ({job['source']}) by "
         f"{summarizer.display_target()}.",
     )
+    # Unless asked explicitly, refresh memory only when the meeting never had
+    # a summary: it was already refreshed from this meeting otherwise.
+    refresh = job["refresh_memory"]
+    if refresh is None:
+        refresh = not current.get("summary_path")
+    job["refresh_memory"] = refresh
     return {
         "row": current,
         "summary": summary,
@@ -174,9 +189,7 @@ async def _summarize(meeting_id: str, job: dict, transcript_path: Path) -> dict:
         "summarizer": summarizer,
         "transcript_text": transcript_text,
         "participants": participants,
-        # Memory was already refreshed from this meeting if it ever had a
-        # summary; doing it again would duplicate its "Recent meetings" entry.
-        "refresh_memory": not current.get("summary_path"),
+        "refresh_memory": refresh,
     }
 
 
@@ -216,7 +229,7 @@ async def _post_to_discord(bot: Any, meeting_id: str, result: dict) -> bool:
     return True
 
 
-async def _refresh_memories(meeting_id: str, result: dict) -> None:
+async def _refresh_memories(meeting_id: str, result: dict, job: dict) -> None:
     """Best-effort per-user memory refresh, as after a live ``/scriber stop``."""
     memory = MemoryManager(config.get().data_dir / "memory")
     when = str(result["row"].get("started_at") or "")
@@ -235,6 +248,7 @@ async def _refresh_memories(meeting_id: str, result: dict) -> None:
             database.append_log(meeting_id, f"Memory update failed for {name}: {exc}")
         else:
             database.append_log(meeting_id, f"Updated memory for {name}.")
+        job["memory_done"] += 1
 
 
 def _write_text(path: Path, content: str) -> None:

@@ -72,6 +72,8 @@ class SummaryRegenRequest(BaseModel):
 
     transcript_id: str = "original"
     post_to_discord: bool = False
+    #: None = refresh participant memory only when the meeting had no summary.
+    refresh_memory: bool | None = None
 
 
 # Maximum accepted avatar upload size (5 MB).
@@ -604,6 +606,7 @@ async def regenerate_summary(
             source,
             bot=request.app.state.bot,
             post_to_discord=body.post_to_discord,
+            refresh_memory=body.refresh_memory,
         )
     except ValueError as exc:
         status = 409 if "already running" in str(exc) else 400
