@@ -37,3 +37,25 @@ export function formatNumber(value) {
   }
   return new Intl.NumberFormat("en-US").format(Number(value));
 }
+
+/**
+ * Format an estimated USD cost. "—" when no provider call was recorded,
+ * "n/a" when calls exist but none could be priced, otherwise "$0.16" (three
+ * decimals under one cent). When some calls are unpriced the figure is a lower
+ * bound and is prefixed with "≥".
+ */
+export function formatCost(value, { calls = 0, unpriced = 0 } = {}) {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) {
+    return Number(calls) > 0 ? "n/a" : "—";
+  }
+  const amount = Number(value);
+  let text;
+  if (amount === 0) {
+    text = "$0.00";
+  } else if (amount < 0.01) {
+    text = `$${amount.toFixed(3)}`;
+  } else {
+    text = `$${amount.toFixed(2)}`;
+  }
+  return Number(unpriced) > 0 ? `≥ ${text}` : text;
+}

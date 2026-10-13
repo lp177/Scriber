@@ -44,6 +44,11 @@ const FIELD_INFO = {
     label: "Summary model",
     hint: "Model ID used to generate meeting summaries.",
   },
+  MODEL_PRICING: {
+    label: "Model price table (JSON)",
+    hint:
+      "Optional JSON object overriding the built-in list prices (USD per million tokens) used for the dashboard's cost estimates, e.g. {\"my-model\": {\"input\": 0, \"output\": 0}}.",
+  },
   SUMMARY_BASE_URL: {
     label: "Summary base URL",
     hint: "Base URL of the summary provider API.",
@@ -143,19 +148,32 @@ const FIELD_INFO = {
 };
 
 // Indexed summary-provider keys, e.g. SUMMARY_BASE_URL_2 -> {attr, index}.
-const PROVIDER_KEY_RE = /^SUMMARY_(PROVIDER|API_KEY|MODEL|BASE_URL)_(\d+)$/;
+const PROVIDER_KEY_RE = /^SUMMARY_(PROVIDER|API_KEY|MODEL|MEMORY_MODEL|BASE_URL)_(\d+)$/;
+const PROVIDER_ATTRS = ["PROVIDER", "API_KEY", "MODEL", "MEMORY_MODEL", "BASE_URL"];
 const PROVIDER_ATTR_LABEL = {
   PROVIDER: "provider kind",
   API_KEY: "API key",
-  MODEL: "model",
+  MODEL: "summary model",
+  MEMORY_MODEL: "memory model",
   BASE_URL: "base URL",
 };
 const PROVIDER_ATTR_HINT = {
   PROVIDER: "One of: anthropic, openai, openai-compatible.",
   API_KEY: "API key for this provider.",
-  MODEL: "Model ID used to generate summaries.",
+  MODEL: "Model ID used to generate the meeting minutes.",
+  MEMORY_MODEL:
+    "Cheaper model of the same provider used to refresh each participant's memory file after a meeting (one call per participant) — e.g. claude-haiku-5-5. Leave empty to use the summary model.",
   BASE_URL: "Base URL of this provider's API.",
 };
+
+/** Placeholder shown in an empty, non-secret input. */
+function placeholderFor(key) {
+  const m = PROVIDER_KEY_RE.exec(key);
+  if (m && m[1] === "MEMORY_MODEL") {
+    return "same as the summary model";
+  }
+  return "";
+}
 
 function labelFor(key) {
   const m = PROVIDER_KEY_RE.exec(key);
@@ -233,7 +251,7 @@ function addProvider() {
   const nextForm = { ...form.value };
   const nextOriginal = { ...original.value };
   const added = [];
-  for (const attr of ["PROVIDER", "API_KEY", "MODEL", "BASE_URL"]) {
+  for (const attr of PROVIDER_ATTRS) {
     const key = `SUMMARY_${attr}_${index}`;
     const secret = attr === "API_KEY";
     added.push({ key, value: "", editable: true, secret });
@@ -541,7 +559,9 @@ onUnmounted(() => {
               :name="field.key"
               :type="field.secret ? 'password' : 'text'"
               :disabled="!field.editable"
-              :placeholder="field.secret ? (field.value ? 'unchanged — ********' : 'not set') : ''"
+              :placeholder="
+                field.secret ? (field.value ? 'unchanged — ********' : 'not set') : placeholderFor(field.key)
+              "
               :autocomplete="field.secret ? 'new-password' : 'off'"
             />
             <span
@@ -573,17 +593,21 @@ onUnmounted(() => {
         <aside v-if="field.key === lastSummaryKey" class="provider-note">
           <p>
             Providers are tried <strong>in order</strong> (provider 1 first); if one fails, Scriber
-            falls over to the next. Add more with the button below.
+            falls over to the next. Add more with the button below. The <strong>memory model</strong>
+            handles the per-participant memory refresh after each meeting — a short, easy task that
+            runs once per participant, so a cheap model keeps the bill down.
           </p>
           <strong>Provider presets:</strong>
           <ul>
             <li>
               <strong>Anthropic (Claude)</strong> — provider <code>anthropic</code>, base URL
-              <code>https://api.anthropic.com</code>, model e.g. <code>claude-opus-5</code>
+              <code>https://api.anthropic.com</code>, summary model e.g.
+              <code>claude-opus-5-5</code>, memory model e.g. <code>claude-haiku-5-5</code>
             </li>
             <li>
               <strong>OpenAI</strong> — provider <code>openai</code>, base URL
-              <code>https://api.openai.com/v1</code>, model e.g. <code>gpt-4o</code>
+              <code>https://api.openai.com/v1</code>, summary model e.g. <code>gpt-4o</code>,
+              memory model e.g. <code>gpt-4o-mini</code>
             </li>
             <li>
               <strong>Self-hosted OpenAI-compatible</strong> (Ollama / vLLM / LM Studio) — provider

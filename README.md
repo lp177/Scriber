@@ -32,7 +32,8 @@ transcripts and summaries, and change settings — all from one container.
 - 📢 Automatic **recording notice** posted in the text channel so everyone knows recording started, what happens with the audio, and how to opt out (leave the channel)
 - 🎧 Optional **meeting audio keeping** (on by default): play or download each meeting's recording from the dashboard, with an automatic expiration you control (default 30 days, `0` = keep forever)
 - 🔁 **Transcript regeneration**: re-transcribe the saved audio with another engine — any local Whisper profile (`tiny` … `large-v3`, `turbo`), Mistral **Voxtral**, **ElevenLabs Scribe**, or **Google Chirp** — and compare any two versions side by side
-- 🖥️ Admin dashboard: stats, meeting history, transcript/summary viewer and downloads, live settings
+- 🖥️ Admin dashboard: stats, meeting history with the **estimated AI cost** of each meeting, transcript/summary viewer and downloads, live settings
+- 💸 Cost-aware by design: the minutes use your main model while the per-participant memory refresh runs on a cheaper one (Claude Haiku by default), and every call's token usage is recorded
 - 🔌 Token-authenticated REST API and an optional [MCP server](#mcp-server) so your AI assistant can browse and edit everything Scriber stores
 - 📦 Single container (Docker or Podman), all data in one `data/` directory
 
@@ -123,7 +124,8 @@ Each block needs these keys, with `<n>` the provider's position in the chain:
 | --- | --- |
 | `SUMMARY_PROVIDER_<n>` | `anthropic` \| `openai` \| `openai-compatible` |
 | `SUMMARY_API_KEY_<n>` | the provider's API key |
-| `SUMMARY_MODEL_<n>` | the model ID |
+| `SUMMARY_MODEL_<n>` | the model that writes the meeting minutes |
+| `SUMMARY_MEMORY_MODEL_<n>` | *(optional)* a cheaper model of the same provider for the per-participant memory refresh; empty = same as `SUMMARY_MODEL_<n>` |
 | `SUMMARY_BASE_URL_<n>` | the provider's base URL |
 
 Example: Anthropic first, OpenAI as a fallback, and a local model as a last
@@ -133,13 +135,15 @@ resort.
 # Provider 1: Anthropic (Claude) — tried first
 SUMMARY_PROVIDER_1=anthropic
 SUMMARY_API_KEY_1=sk-ant-xxxxxxxx
-SUMMARY_MODEL_1=claude-opus-5
+SUMMARY_MODEL_1=claude-opus-5-5
+SUMMARY_MEMORY_MODEL_1=claude-haiku-5-5
 SUMMARY_BASE_URL_1=https://api.anthropic.com
 
 # Provider 2: OpenAI (ChatGPT) — tried if provider 1 fails
 SUMMARY_PROVIDER_2=openai
 SUMMARY_API_KEY_2=sk-xxxxxxxx
 SUMMARY_MODEL_2=gpt-4o
+SUMMARY_MEMORY_MODEL_2=gpt-4o-mini
 SUMMARY_BASE_URL_2=https://api.openai.com/v1
 
 # Provider 3: self-hosted OpenAI-compatible (Ollama / vLLM / LM Studio /
@@ -160,6 +164,36 @@ provider, **no data ever leaves your machine**.
 > provider `1`, so existing configs keep working. New setups should use the
 > numbered format.
 
+**Why two models per provider?** After the minutes are written, Scriber
+refreshes the memory file of every participant — a short, easy rewrite that
+runs once per participant and would otherwise cost more than the summary
+itself on a large meeting. `SUMMARY_MEMORY_MODEL_<n>` sends those calls to a
+cheaper model of the same provider (`claude-haiku-5-5` by default for the
+built-in Anthropic block); leave it empty to use the summary model for both.
+On Anthropic models Scriber also requests adaptive thinking with an explicit
+effort level (`medium` for the minutes, `low` for memory refreshes) and a
+generous output limit; a response cut off at that limit, or declined by the
+provider, counts as a failure and falls over to the next provider.
+
+### AI usage & cost estimates
+
+Every provider call records the token usage the provider reports (input,
+output, cached) in the `api_usage` table, and the dashboard shows an
+**estimated cost** per meeting — in the meetings table and, with the
+per-call breakdown, on the meeting page. The estimate uses a built-in table of
+list prices (USD per million tokens) for the Anthropic models and the common
+OpenAI ones; a model that is not in the table shows its tokens with `n/a` as
+cost. `MODEL_PRICING` (a JSON object, not editable from the dashboard)
+overrides or extends the table — for instance to price a self-hosted model at
+zero or to follow a price change:
+
+```ini
+MODEL_PRICING={"llama3.1:8b": {"input": 0, "output": 0}, "gpt-4o": {"input": 2.5, "output": 10, "cache_read": 1.25}}
+```
+
+Models are matched by longest prefix, so dated snapshots resolve to their
+family. Treat the figures as estimates, not invoices.
+
 ### Admin credentials
 
 Set `ADMIN_USERNAME` and `ADMIN_PASSWORD` for the dashboard login. The
@@ -174,7 +208,8 @@ anyone else.
 | `DISCORD_GUILD_ID` | *(empty)* | no | optional: restrict/speed up slash-command sync to one guild |
 | `SUMMARY_PROVIDER_<n>` | `anthropic` (as `_1`) | yes | provider kind of the *n*-th block: `anthropic` \| `openai` \| `openai-compatible` |
 | `SUMMARY_API_KEY_<n>` | *(empty)* | yes | API key for provider *n* |
-| `SUMMARY_MODEL_<n>` | `claude-opus-5` (as `_1`) | yes | model ID for provider *n* |
+| `SUMMARY_MODEL_<n>` | `claude-opus-5-5` (as `_1`) | yes | model writing the minutes for provider *n* |
+| `SUMMARY_MEMORY_MODEL_<n>` | `claude-haiku-5-5` (as `_1`) | yes | cheaper model for the per-participant memory refresh; empty = same as `SUMMARY_MODEL_<n>` |
 | `SUMMARY_BASE_URL_<n>` | `https://api.anthropic.com` (as `_1`) | yes | base URL for provider *n* |
 | `TRANSCRIBE_ENGINE` | `whisper` | yes | live transcription engine: `whisper` (local) \| `voxtral` \| `elevenlabs` \| `google` (cloud engines fall back to local Whisper on failure) |
 | `WHISPER_MODEL` | `base` | yes | tiny/base/small/medium/large-v3… |
@@ -198,6 +233,7 @@ anyone else.
 | `WEB_HOST` | `0.0.0.0` | no | web server bind address |
 | `WEB_PORT` | `8080` | no | web server port |
 | `WEB_SECRET` | *(empty)* | no | HMAC key for session tokens; auto-generated and persisted to `.env` if empty |
+| `MODEL_PRICING` | *(empty)* | no | JSON price-table overrides for the [cost estimates](#ai-usage--cost-estimates) |
 | `MCP_ENABLED` | `true` | no | [MCP server](#mcp-server) on/off |
 | `MCP_HOST` | `0.0.0.0` | no | MCP server bind address (same rules as `WEB_HOST`) |
 | `MCP_PORT` | `8081` | no | MCP server port |
@@ -380,13 +416,15 @@ Open <http://localhost:8080> and sign in with `ADMIN_USERNAME` /
 
 - **Dashboard** — stat cards (total meetings, completed, total duration,
   words transcribed, live active sessions, errors), a "meetings per day"
-  chart for the last 30 days, and the meetings table. From each row you can
-  view or download the transcript and the summary, download the kept meeting
-  audio, inspect the meeting's processing log, and delete meetings (files and
-  database row).
-- **Meeting page** — play or download the meeting audio, edit the transcript
-  and summary, regenerate the transcript with another engine, and compare any
-  two transcript versions side by side (see
+  chart for the last 30 days, and the meetings table with the **estimated AI
+  cost** of each meeting. Click anywhere on a row to open the meeting page;
+  from the action bar you can view or download the transcript and the summary,
+  download the kept meeting audio, and delete meetings (files and database
+  row).
+- **Meeting page** — details and the **AI usage** panel (every provider call
+  with its model, token counts and estimated cost), play or download the
+  meeting audio, edit the transcript and summary, regenerate the transcript
+  with another engine, and compare any two transcript versions side by side (see
   [Meeting audio & transcript regeneration](#meeting-audio--transcript-regeneration)).
   The **Summary** panel can also generate the summary again from any transcript
   version: when summarization failed at `/scriber stop` it shows a **Retry
@@ -398,8 +436,9 @@ Open <http://localhost:8080> and sign in with `ADMIN_USERNAME` /
   on to update the memory files from a better summary) and **Post it to the
   Discord channel**.
 - **Settings** (⚙️) — edit the dashboard-editable configuration keys: the
-  summary provider failover list (provider kind, API key, model and base URL
-  for each, plus a **+ Add provider** button to extend the chain), the Whisper
+  summary provider failover list (provider kind, API key, summary model,
+  memory model and base URL for each, plus a **+ Add provider** button to
+  extend the chain), the Whisper
   model and default language, meeting audio keeping and its expiration, the
   transcription engine API keys, and the admin credentials. Secret values are
   masked; changes are written back to `.env` and take effect immediately for
@@ -590,7 +629,11 @@ Rough guidance for CPU with `int8` compute:
   Set `AUDIO_KEEP=false` to store text only, like earlier versions.
 - **The final meeting transcript** is sent once to the summary provider you
   configured — and if you use a self-hosted OpenAI-compatible provider, not
-  even that.
+  even that. After the minutes are produced, the same provider (its memory
+  model) receives, once per participant, that participant's current memory
+  file, the minutes and a transcript excerpt to refresh the memory file.
+- Only token counts and an estimated cost are recorded per call, in your own
+  database — never the prompts or responses.
 - `/scriber cancel` discards all data of the current recording — audio
   included; nothing is stored or sent.
 - Everything Scriber stores lives in the `data/` directory: `scriber.db`

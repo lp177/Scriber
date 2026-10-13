@@ -7,10 +7,13 @@ web and AI components share; :func:`get` returns the current snapshot.
 
 Summary providers form an ordered failover list. Each provider is described
 by an indexed block of keys — ``SUMMARY_PROVIDER_1`` / ``SUMMARY_API_KEY_1``
-/ ``SUMMARY_MODEL_1`` / ``SUMMARY_BASE_URL_1``, ``..._2`` and so on. Providers
-are tried in ascending index order until one succeeds. The legacy single
-provider keys (``SUMMARY_PROVIDER`` without an index, etc.) are still honored
-as provider 1 for backwards compatibility.
+/ ``SUMMARY_MODEL_1`` / ``SUMMARY_MEMORY_MODEL_1`` / ``SUMMARY_BASE_URL_1``,
+``..._2`` and so on. Providers are tried in ascending index order until one
+succeeds. ``SUMMARY_MEMORY_MODEL_<n>`` is the (cheaper) model the same
+provider uses for the per-participant memory refresh; when empty, the
+provider's summary model is used. The legacy single provider keys
+(``SUMMARY_PROVIDER`` without an index, etc.) are still honored as provider 1
+for backwards compatibility.
 """
 
 from __future__ import annotations
@@ -59,6 +62,9 @@ FIXED_DEFAULTS: dict[str, str] = {
     "MCP_HOST": "0.0.0.0",
     "MCP_PORT": "8081",
     "SCRIBER_DATA_DIR": "./data",
+    # JSON object overriding/extending the built-in per-model price table used
+    # for the dashboard's cost estimates (see scriber.summary.pricing).
+    "MODEL_PRICING": "",
 }
 
 # Values accepted as "on" for boolean keys (MCP_ENABLED).
@@ -95,10 +101,12 @@ FIXED_SECRET_KEYS: set[str] = {
     "GOOGLE_SPEECH_API_KEY",
 }
 
-# The four suffixes that make up one summary provider block.
-PROVIDER_ATTRS: tuple[str, ...] = ("PROVIDER", "API_KEY", "MODEL", "BASE_URL")
+# The five suffixes that make up one summary provider block.
+PROVIDER_ATTRS: tuple[str, ...] = ("PROVIDER", "API_KEY", "MODEL", "MEMORY_MODEL", "BASE_URL")
 # Matches an indexed provider key, e.g. ``SUMMARY_BASE_URL_2``.
-_PROVIDER_KEY_RE = re.compile(r"^SUMMARY_(PROVIDER|API_KEY|MODEL|BASE_URL)_(\d+)$")
+_PROVIDER_KEY_RE = re.compile(
+    r"^SUMMARY_(PROVIDER|API_KEY|MODEL|MEMORY_MODEL|BASE_URL)_(\d+)$"
+)
 # Legacy single-provider keys (pre-list format); still honored as provider 1.
 _LEGACY_KEYS: set[str] = {
     "SUMMARY_PROVIDER",
@@ -110,7 +118,8 @@ _LEGACY_KEYS: set[str] = {
 _DEFAULT_PROVIDER: dict[str, str] = {
     "PROVIDER": "anthropic",
     "API_KEY": "",
-    "MODEL": "claude-opus-5",
+    "MODEL": "claude-opus-5-5",
+    "MEMORY_MODEL": "claude-haiku-5-5",
     "BASE_URL": "https://api.anthropic.com",
 }
 
@@ -143,16 +152,27 @@ class ProviderConfig:
     api_key: str
     model: str
     base_url: str
+    #: Model used for the per-participant memory refresh; empty = ``model``.
+    memory_model: str = ""
 
     @property
     def enabled(self) -> bool:
         """A provider is tried only when it names a provider kind."""
         return bool(self.provider)
 
-    def target_label(self) -> str:
-        """Human-readable target, e.g. ``api.anthropic.com / claude-opus-5``."""
+    @property
+    def effective_memory_model(self) -> str:
+        """The model that memory refreshes actually use (falls back to ``model``)."""
+        return self.memory_model or self.model
+
+    def model_for(self, task: str) -> str:
+        """Return the model for ``task``: ``"memory"`` or anything else (summary)."""
+        return self.effective_memory_model if task == "memory" else self.model
+
+    def target_label(self, task: str = "summary") -> str:
+        """Human-readable target, e.g. ``api.anthropic.com / claude-opus-5-5``."""
         netloc = urlparse(self.base_url).netloc or self.base_url or "?"
-        return f"{netloc} / {self.model or '?'}"
+        return f"{netloc} / {self.model_for(task) or '?'}"
 
 
 @dataclasses.dataclass
@@ -201,6 +221,9 @@ class Config:
     mcp_host: str
     mcp_port: int
     data_dir: pathlib.Path
+    #: Raw ``MODEL_PRICING`` JSON (price-table overrides), parsed lazily by
+    #: :mod:`scriber.summary.pricing`.
+    model_pricing: str
 
 
 class ConfigManager:
@@ -245,6 +268,7 @@ class ConfigManager:
                 api_key=sources.get(f"SUMMARY_API_KEY_{n}", ""),
                 model=sources.get(f"SUMMARY_MODEL_{n}", "").strip(),
                 base_url=sources.get(f"SUMMARY_BASE_URL_{n}", "").strip(),
+                memory_model=sources.get(f"SUMMARY_MEMORY_MODEL_{n}", "").strip(),
             )
             for n in indices
         ]
@@ -266,6 +290,7 @@ class ConfigManager:
                     api_key=_DEFAULT_PROVIDER["API_KEY"],
                     model=_DEFAULT_PROVIDER["MODEL"],
                     base_url=_DEFAULT_PROVIDER["BASE_URL"],
+                    memory_model=_DEFAULT_PROVIDER["MEMORY_MODEL"],
                 )
             )
         return providers
@@ -345,6 +370,7 @@ class ConfigManager:
             mcp_host=fixed["MCP_HOST"],
             mcp_port=ports["MCP_PORT"],
             data_dir=pathlib.Path(fixed["SCRIBER_DATA_DIR"]),
+            model_pricing=fixed["MODEL_PRICING"],
         )
         return self._config
 
@@ -391,6 +417,11 @@ class ConfigManager:
                 self._display_value(f"SUMMARY_MODEL_{provider.index}", provider.model)
             )
             fields.append(
+                self._display_value(
+                    f"SUMMARY_MEMORY_MODEL_{provider.index}", provider.memory_model
+                )
+            )
+            fields.append(
                 self._display_value(f"SUMMARY_BASE_URL_{provider.index}", provider.base_url)
             )
         for key in (
@@ -420,6 +451,7 @@ class ConfigManager:
             "MCP_HOST",
             "MCP_PORT",
             "SCRIBER_DATA_DIR",
+            "MODEL_PRICING",
         ):
             fields.append(self._display_value(key, self._fixed[key]))
         return fields

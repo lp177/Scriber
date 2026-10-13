@@ -159,14 +159,16 @@ async def _summarize(meeting_id: str, job: dict, transcript_path: Path) -> dict:
     }
     context = MemoryManager(cfg.data_dir / "memory").context_block(participants)
     summarizer = Summarizer()
-    summary = await summarizer.summarize(transcript_text, meta, participant_context=context)
+    completion = await summarizer.summarize(transcript_text, meta, participant_context=context)
+    summary = completion.text
 
     # The provider call can take minutes; the meeting may have been deleted
     # from the dashboard in the meantime. Re-check before persisting so a
-    # deleted meeting cannot resurrect an orphan file.
+    # deleted meeting cannot resurrect an orphan file (or an orphan usage row).
     current = database.get_meeting(meeting_id)
     if current is None:
         raise ValueError("The meeting was deleted while its summary was being generated.")
+    database.record_usage(meeting_id, "summary", **completion.usage_fields())
 
     summary_path = cfg.data_dir / "transcripts" / f"{meeting_id}.md"
     await asyncio.to_thread(_write_text, summary_path, summary)
@@ -174,7 +176,7 @@ async def _summarize(meeting_id: str, job: dict, transcript_path: Path) -> dict:
     database.append_log(
         meeting_id,
         f"Summary generated from the dashboard ({job['source']}) by "
-        f"{summarizer.display_target()}.",
+        f"{completion.host} / {completion.model} ({completion.usage_label()}).",
     )
     # Unless asked explicitly, refresh memory only when the meeting never had
     # a summary: it was already refreshed from this meeting otherwise.
@@ -235,7 +237,7 @@ async def _refresh_memories(meeting_id: str, result: dict, job: dict) -> None:
     when = str(result["row"].get("started_at") or "")
     for user_id, name in result["participants"]:
         try:
-            await memory.update_from_meeting(
+            completion = await memory.update_from_meeting(
                 result["summarizer"],
                 user_id,
                 name,
@@ -247,7 +249,11 @@ async def _refresh_memories(meeting_id: str, result: dict, job: dict) -> None:
             log.warning("Meeting %s: memory update failed for %s: %s", meeting_id, name, exc)
             database.append_log(meeting_id, f"Memory update failed for {name}: {exc}")
         else:
-            database.append_log(meeting_id, f"Updated memory for {name}.")
+            database.record_usage(meeting_id, "memory", label=name, **completion.usage_fields())
+            database.append_log(
+                meeting_id,
+                f"Updated memory for {name} ({completion.model}, {completion.usage_label()}).",
+            )
         job["memory_done"] += 1
 
 

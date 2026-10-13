@@ -9,8 +9,10 @@ across sessions.
 This module must NOT import :mod:`scriber.summary.summarizer` at module level, to
 avoid an import cycle; the summarizer instance is passed into
 :meth:`MemoryManager.update_from_meeting`. It only depends on that object
-exposing an ``async complete(system_prompt, user_prompt) -> str`` coroutine,
-captured here by the :class:`_Completer` protocol.
+exposing an ``async complete(system_prompt, user_prompt, *, task)`` coroutine
+returning an object with a ``text`` attribute, captured here by the
+:class:`_Completer` / :class:`_CompletionLike` protocols. Memory refreshes run
+as the ``"memory"`` task, i.e. on each provider's cheaper memory model.
 """
 
 from __future__ import annotations
@@ -51,10 +53,18 @@ MEMORY_SYSTEM_PROMPT = (
 )
 
 
+class _CompletionLike(Protocol):
+    """What a completion must expose here: the generated text (plus any usage)."""
+
+    text: str
+
+
 class _Completer(Protocol):
     """Minimal contract required of the summarizer passed into this module."""
 
-    async def complete(self, system_prompt: str, user_prompt: str) -> str:
+    async def complete(
+        self, system_prompt: str, user_prompt: str, *, task: str = "summary"
+    ) -> _CompletionLike:
         """Return a completion for the given system/user prompt pair."""
         ...
 
@@ -125,16 +135,18 @@ class MemoryManager:
         transcript_text: str,
         summary_text: str,
         when_iso: str,
-    ) -> str:
+    ) -> _CompletionLike:
         """Regenerate one participant's memory file from a finished meeting.
 
         Builds a prompt from the existing memory (or a ``(none yet)``
         placeholder), the meeting date, its summary and a transcript excerpt
         truncated to :data:`MEMORY_TRANSCRIPT_CHAR_LIMIT`, asks ``summarizer`` to
-        produce the full updated file, writes it and returns the new content.
+        produce the full updated file (as the ``"memory"`` task), writes it and
+        returns the completion — its ``text`` is the new memory content and the
+        caller can record its token usage.
 
         ``summarizer`` is passed in (rather than imported) to avoid an import
-        cycle; it only needs an ``async complete(system_prompt, user_prompt)``.
+        cycle; it only needs an ``async complete(system_prompt, user_prompt, *, task)``.
 
         Raises:
             SummaryError: propagated from ``summarizer.complete`` so the caller
@@ -161,6 +173,6 @@ class MemoryManager:
             ]
         )
 
-        new_memory = await summarizer.complete(MEMORY_SYSTEM_PROMPT, user_prompt)
-        self.write(user_id, new_memory)
-        return new_memory
+        completion = await summarizer.complete(MEMORY_SYSTEM_PROMPT, user_prompt, task="memory")
+        self.write(user_id, completion.text)
+        return completion

@@ -234,17 +234,20 @@ $EDITOR .env</code></pre>
 <span class="tok-k">DISCORD_GUILD_ID</span>=<span class="tok-s">your-server-id</span></code></pre>
 
           <h3>Summary providers (ordered failover list)</h3>
-          <p>Each provider is a numbered block (<code>_1</code>, <code>_2</code>, …), tried in order until one succeeds. A single block is fine. Secrets can later be edited from the dashboard Settings page.</p>
+          <p>Each provider is a numbered block (<code>_1</code>, <code>_2</code>, …), tried in order until one succeeds. A single block is fine. The optional <em>memory model</em> is a cheaper model of the same provider used for the short per-participant memory refresh after each meeting. Secrets can later be edited from the dashboard Settings page.</p>
 <pre><code><span class="tok-c"># Provider 1: Anthropic (Claude) — tried first</span>
 <span class="tok-k">SUMMARY_PROVIDER_1</span>=<span class="tok-s">anthropic</span>
 <span class="tok-k">SUMMARY_API_KEY_1</span>=<span class="tok-s">sk-ant-xxxxxxxx</span>
-<span class="tok-k">SUMMARY_MODEL_1</span>=<span class="tok-s">claude-opus-5</span>
+<span class="tok-k">SUMMARY_MODEL_1</span>=<span class="tok-s">claude-opus-5-5</span>
+<span class="tok-c"># Optional: cheaper model for the per-participant memory refresh</span>
+<span class="tok-k">SUMMARY_MEMORY_MODEL_1</span>=<span class="tok-s">claude-haiku-5-5</span>
 <span class="tok-k">SUMMARY_BASE_URL_1</span>=<span class="tok-s">https://api.anthropic.com</span>
 
 <span class="tok-c"># Provider 2 (optional): OpenAI — tried if provider 1 fails</span>
 <span class="tok-k">SUMMARY_PROVIDER_2</span>=<span class="tok-s">openai</span>
 <span class="tok-k">SUMMARY_API_KEY_2</span>=<span class="tok-s">sk-xxxxxxxx</span>
 <span class="tok-k">SUMMARY_MODEL_2</span>=<span class="tok-s">gpt-4o</span>
+<span class="tok-k">SUMMARY_MEMORY_MODEL_2</span>=<span class="tok-s">gpt-4o-mini</span>
 <span class="tok-k">SUMMARY_BASE_URL_2</span>=<span class="tok-s">https://api.openai.com/v1</span></code></pre>
           <div class="callout">
             <strong>Fully local?</strong> Set a provider to <code>openai-compatible</code> pointed at Ollama/vLLM/LM&nbsp;Studio/LocalAI

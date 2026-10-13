@@ -82,11 +82,11 @@ async def meetings(
 
 @router.get("/meetings/{meeting_id}")
 async def meeting(meeting_id: str, _t: dict = Depends(require_api_token)) -> dict[str, Any]:
-    """Full meeting row including the generation log."""
+    """Full meeting row including the generation log and the recorded AI usage."""
     row = database.get_meeting(meeting_id)
     if row is None:
         raise HTTPException(status_code=404, detail="Meeting not found")
-    return dash._with_file_flags(row)
+    return dash._with_usage(dash._with_file_flags(row))
 
 
 @router.get("/meetings/{meeting_id}/transcript")

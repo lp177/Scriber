@@ -19,7 +19,7 @@ import {
   transcriptUrl,
   transcriptVersionUrl,
 } from "../api.js";
-import { formatDate, formatDuration, formatNumber } from "../format.js";
+import { formatCost, formatDate, formatDuration, formatNumber } from "../format.js";
 import { renderMarkdown } from "../util/markdown.js";
 
 const route = useRoute();
@@ -68,6 +68,39 @@ async function load() {
   if (summaryJobRunning.value) {
     scheduleSummaryPoll();
   }
+}
+
+// ---- AI usage & estimated cost ----
+/** Recorded provider calls (summary + memory refreshes), oldest first. */
+const usageRows = computed(() => (meeting.value && meeting.value.usage) || []);
+
+/** Column totals for the usage panel. */
+const usageTotals = computed(() =>
+  usageRows.value.reduce(
+    (acc, row) => ({
+      input: acc.input + Number(row.input_tokens || 0),
+      output: acc.output + Number(row.output_tokens || 0),
+      cached: acc.cached + Number(row.cache_read_tokens || 0),
+    }),
+    { input: 0, output: 0, cached: 0 },
+  ),
+);
+
+/** Estimated cost of the whole meeting, "—" / "n/a" when unknown. */
+const costText = computed(() =>
+  meeting.value
+    ? formatCost(meeting.value.cost_usd, {
+        calls: meeting.value.usage_calls,
+        unpriced: meeting.value.usage_unpriced,
+      })
+    : "—",
+);
+
+function usageLabel(row) {
+  if (row.kind === "memory") {
+    return row.label ? `Memory: ${row.label}` : "Memory refresh";
+  }
+  return row.kind === "summary" ? "Summary" : row.kind;
 }
 
 // ---- Meeting audio (played through a blob URL so the request stays authenticated) ----
@@ -498,7 +531,63 @@ onUnmounted(() => {
             <dt>Participants</dt>
             <dd>{{ formatNumber(meeting.participant_count) }}</dd>
           </div>
+          <div>
+            <dt>Est. cost</dt>
+            <dd
+              :title="
+                usageRows.length
+                  ? 'Estimated from list prices (see the AI usage panel)'
+                  : 'No AI provider call recorded for this meeting'
+              "
+            >
+              {{ costText }}
+            </dd>
+          </div>
         </dl>
+      </section>
+
+      <section v-if="usageRows.length" class="panel">
+        <div class="panel-head">
+          <h2>AI usage</h2>
+          <span class="muted panel-note">
+            Token counts reported by the providers; costs estimated from list prices
+            (<code>MODEL_PRICING</code> to adjust).
+          </span>
+        </div>
+        <div class="usage-list" role="table" aria-label="AI provider calls for this meeting">
+          <div class="usage-row usage-head" role="row">
+            <span class="u-call" role="columnheader">Call</span>
+            <span class="u-model" role="columnheader">Model</span>
+            <span class="u-num" role="columnheader">Input</span>
+            <span class="u-num" role="columnheader">Output</span>
+            <span class="u-num" role="columnheader">Cached</span>
+            <span class="u-num" role="columnheader">Cost</span>
+          </div>
+          <div v-for="row in usageRows" :key="row.id" class="usage-row" role="row">
+            <span class="u-call" role="cell">
+              {{ usageLabel(row) }}
+              <small class="muted">{{ formatDate(row.created_at) }}</small>
+            </span>
+            <span class="u-model" role="cell">
+              {{ row.model || "—" }}
+              <small class="muted">{{ row.provider || "" }}</small>
+            </span>
+            <span class="u-num" role="cell">{{ formatNumber(row.input_tokens) }}</span>
+            <span class="u-num" role="cell">{{ formatNumber(row.output_tokens) }}</span>
+            <span class="u-num" role="cell">{{ formatNumber(row.cache_read_tokens) }}</span>
+            <span class="u-num" role="cell">{{ formatCost(row.cost_usd, { calls: 1 }) }}</span>
+          </div>
+          <div class="usage-row usage-total" role="row">
+            <span class="u-call" role="cell">Total</span>
+            <span class="u-model" role="cell">
+              {{ usageRows.length }} call{{ usageRows.length === 1 ? "" : "s" }}
+            </span>
+            <span class="u-num" role="cell">{{ formatNumber(usageTotals.input) }}</span>
+            <span class="u-num" role="cell">{{ formatNumber(usageTotals.output) }}</span>
+            <span class="u-num" role="cell">{{ formatNumber(usageTotals.cached) }}</span>
+            <span class="u-num" role="cell">{{ costText }}</span>
+          </div>
+        </div>
       </section>
 
       <section v-if="meeting.has_audio" class="panel">

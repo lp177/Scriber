@@ -135,6 +135,12 @@ def _with_file_flags(row: dict[str, Any]) -> dict[str, Any]:
     return row
 
 
+def _with_usage(data: dict[str, Any]) -> dict[str, Any]:
+    """Attach the meeting's recorded AI provider calls as ``usage`` (detail views)."""
+    data["usage"] = database.list_usage(str(data.get("id") or ""))
+    return data
+
+
 def _serve_meeting_file(meeting_id: str, column: str, media_type: str, download: bool) -> Response:
     """Serve the file referenced by *column* of the meeting row, inline or as attachment."""
     row = database.get_meeting(meeting_id)
@@ -468,7 +474,7 @@ async def get_meeting(meeting_id: str, _user: str = Depends(require_auth)) -> di
     row = database.get_meeting(meeting_id)
     if row is None:
         raise HTTPException(status_code=404, detail="Meeting not found")
-    data = _with_file_flags(row)
+    data = _with_usage(_with_file_flags(row))
     data["summary_job"] = summary_regen.get_job(meeting_id)
     return data
 

@@ -119,6 +119,44 @@ CREATE TABLE IF NOT EXISTS api_tokens (
 )
 """
 
+# One row per AI provider call made for a meeting: the summary itself
+# (``kind = 'summary'``) and each participant's memory refresh
+# (``kind = 'memory'``, ``label`` = the participant's display name). Token
+# counts come from the provider's usage report; ``cost_usd`` is the list-price
+# estimate (NULL when the model is not in the price table). A meeting's cost
+# in the dashboard is the SUM over its rows.
+_USAGE_SCHEMA = """
+CREATE TABLE IF NOT EXISTS api_usage (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    meeting_id TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    label TEXT,
+    provider TEXT,
+    model TEXT,
+    input_tokens INTEGER NOT NULL DEFAULT 0,
+    output_tokens INTEGER NOT NULL DEFAULT 0,
+    cache_read_tokens INTEGER NOT NULL DEFAULT 0,
+    cache_write_tokens INTEGER NOT NULL DEFAULT 0,
+    cost_usd REAL,
+    created_at TEXT NOT NULL
+)
+"""
+_USAGE_INDEX = "CREATE INDEX IF NOT EXISTS idx_api_usage_meeting ON api_usage(meeting_id)"
+
+# Meeting rows are read with their aggregated provider usage so lists and the
+# detail view can show an estimated cost: ``usage_calls`` (number of recorded
+# calls), ``cost_usd`` (SUM of the priced ones, NULL when none is priced) and
+# ``usage_unpriced`` (calls whose model has no list price).
+_MEETING_SELECT = """
+SELECT
+    m.*,
+    (SELECT COUNT(*) FROM api_usage u WHERE u.meeting_id = m.id) AS usage_calls,
+    (SELECT SUM(u.cost_usd) FROM api_usage u WHERE u.meeting_id = m.id) AS cost_usd,
+    (SELECT COUNT(*) FROM api_usage u
+      WHERE u.meeting_id = m.id AND u.cost_usd IS NULL) AS usage_unpriced
+FROM meetings m
+"""
+
 # Columns of the ``users`` table that ``update_user`` is permitted to modify.
 _USER_UPDATABLE: tuple[str, ...] = ("display_name", "description", "avatar_path")
 
@@ -149,6 +187,8 @@ def init(db_path: pathlib.Path) -> None:
         _conn.execute(_PARTICIPANTS_SCHEMA)
         _conn.execute(_TRANSCRIPTS_SCHEMA)
         _conn.execute(_API_TOKENS_SCHEMA)
+        _conn.execute(_USAGE_SCHEMA)
+        _conn.execute(_USAGE_INDEX)
         _migrate(_conn)
         _conn.commit()
 
@@ -228,7 +268,7 @@ def get_meeting(meeting_id: str) -> dict | None:
     with _lock:
         conn = _require_conn()
         row = conn.execute(
-            "SELECT * FROM meetings WHERE id = ?", (meeting_id,)
+            _MEETING_SELECT + "WHERE m.id = ?", (meeting_id,)
         ).fetchone()
     return dict(row) if row is not None else None
 
@@ -239,7 +279,7 @@ def list_meetings(limit: int = 50, offset: int = 0) -> tuple[int, list[dict]]:
         conn = _require_conn()
         total = conn.execute("SELECT COUNT(*) FROM meetings").fetchone()[0]
         rows = conn.execute(
-            "SELECT * FROM meetings ORDER BY started_at DESC, id DESC LIMIT ? OFFSET ?",
+            _MEETING_SELECT + "ORDER BY m.started_at DESC, m.id DESC LIMIT ? OFFSET ?",
             (limit, offset),
         ).fetchall()
     return total, [dict(row) for row in rows]
@@ -255,8 +295,59 @@ def delete_meeting(meeting_id: str) -> None:
         conn.execute(
             "DELETE FROM meeting_transcripts WHERE meeting_id = ?", (meeting_id,)
         )
+        conn.execute("DELETE FROM api_usage WHERE meeting_id = ?", (meeting_id,))
         conn.execute("DELETE FROM meetings WHERE id = ?", (meeting_id,))
         conn.commit()
+
+
+def record_usage(
+    meeting_id: str,
+    kind: str,
+    *,
+    provider: str,
+    model: str,
+    input_tokens: int = 0,
+    output_tokens: int = 0,
+    cache_read_tokens: int = 0,
+    cache_write_tokens: int = 0,
+    cost_usd: float | None = None,
+    label: str | None = None,
+) -> None:
+    """Record one AI provider call made for a meeting (``kind``: summary | memory)."""
+    with _lock:
+        conn = _require_conn()
+        conn.execute(
+            """
+            INSERT INTO api_usage (
+                meeting_id, kind, label, provider, model, input_tokens, output_tokens,
+                cache_read_tokens, cache_write_tokens, cost_usd, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                meeting_id,
+                kind,
+                label,
+                provider,
+                model,
+                int(input_tokens or 0),
+                int(output_tokens or 0),
+                int(cache_read_tokens or 0),
+                int(cache_write_tokens or 0),
+                cost_usd,
+                _utcnow(),
+            ),
+        )
+        conn.commit()
+
+
+def list_usage(meeting_id: str) -> list[dict]:
+    """Return a meeting's recorded provider calls, oldest first."""
+    with _lock:
+        conn = _require_conn()
+        rows = conn.execute(
+            "SELECT * FROM api_usage WHERE meeting_id = ? ORDER BY id ASC", (meeting_id,)
+        ).fetchall()
+    return [dict(row) for row in rows]
 
 
 def list_meeting_ids_by_status(status: str) -> list[str]:
@@ -434,6 +525,7 @@ def get_stats() -> dict:
             """
         ).fetchall()
         total_users = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
+        total_cost = conn.execute("SELECT SUM(cost_usd) FROM api_usage").fetchone()[0]
     return {
         "total_meetings": totals["total_meetings"] or 0,
         "completed": totals["completed"] or 0,
@@ -442,6 +534,7 @@ def get_stats() -> dict:
         "total_duration_seconds": totals["total_duration_seconds"] or 0,
         "total_words": totals["total_words"] or 0,
         "total_users": total_users or 0,
+        "total_cost_usd": total_cost,
         "meetings_by_day": [
             {"date": row["date"], "count": row["count"]} for row in by_day
         ],

@@ -181,7 +181,7 @@ def create_mcp_app(bot: Any | None = None) -> Any:
     @server.tool()
     def get_meeting(meeting_id: str) -> dict[str, Any]:
         """Full detail of one meeting, including its processing log and its participants (Discord user ids and display names)."""
-        data = dash._with_file_flags(_meeting_or_fail(meeting_id))
+        data = dash._with_usage(dash._with_file_flags(_meeting_or_fail(meeting_id)))
         data["participants"] = database.get_meeting_participants(meeting_id)
         return data
 
