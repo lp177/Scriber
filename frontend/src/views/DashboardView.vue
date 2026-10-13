@@ -1,13 +1,12 @@
 <script setup>
-// Dashboard: stat cards, meetings-per-day chart, paginated meetings table and
-// the transcript/summary viewer dialog. Stats auto-refresh every 30 seconds.
+// Dashboard: stat cards, meetings-per-day chart and the paginated meetings
+// table (each row opens the meeting page). Stats auto-refresh every 30 seconds.
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import { useRouter } from "vue-router";
-import { audioUrl, deleteMeeting, fetchBlob, fetchText, getBotStatus, getMeetings, getStats, resyncBot, summaryUrl, transcriptUrl } from "../api.js";
+import { getBotStatus, getMeetings, getStats, resyncBot } from "../api.js";
 import StatCards from "../components/StatCards.vue";
 import MeetingsPerDay from "../components/MeetingsPerDay.vue";
 import MeetingsTable from "../components/MeetingsTable.vue";
-import TranscriptDialog from "../components/TranscriptDialog.vue";
 
 const PAGE_SIZE = 15;
 const STATS_REFRESH_MS = 30000;
@@ -22,7 +21,6 @@ const error = ref("");
 const botStatus = ref(null);
 const resyncing = ref(false);
 const resyncNote = ref("");
-const viewer = ref(null);
 let statsTimer = null;
 
 /** Load stats; background refreshes fail silently (banner stays clean). */
@@ -110,67 +108,9 @@ function nextPage() {
   }
 }
 
-/** Open the viewer dialog for a transcript or summary. */
-function onView(meeting, kind) {
-  viewer.value?.open(meeting, kind);
-}
-
 /** Navigate to the full meeting detail view. */
 function onOpen(meeting) {
   router.push(`/meetings/${encodeURIComponent(meeting.id)}`);
-}
-
-/** Save a blob to disk through a temporary object-URL anchor. */
-function saveBlob(blob, filename) {
-  const link = document.createElement("a");
-  link.href = URL.createObjectURL(blob);
-  link.download = filename;
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  URL.revokeObjectURL(link.href);
-}
-
-/** Fetch a transcript/summary/audio file and trigger a client-side download. */
-async function onDownload(meeting, kind) {
-  error.value = "";
-  try {
-    if (kind === "audio") {
-      const blob = await fetchBlob(audioUrl(meeting.id, true));
-      saveBlob(blob, `scriber-${meeting.id}.${blob.type.includes("wav") ? "wav" : "ogg"}`);
-      return;
-    }
-    const isSummary = kind === "summary";
-    const url = isSummary ? summaryUrl(meeting.id, true) : transcriptUrl(meeting.id, true);
-    const text = await fetchText(url);
-    const blob = new Blob([text], {
-      type: isSummary ? "text/markdown;charset=utf-8" : "text/plain;charset=utf-8",
-    });
-    saveBlob(blob, `${meeting.id}.${isSummary ? "md" : "txt"}`);
-  } catch (e) {
-    error.value = (e && e.message) || "Download failed.";
-  }
-}
-
-/** Delete a meeting after explicit confirmation. */
-async function onDelete(meeting) {
-  const confirmed = window.confirm(
-    `Delete meeting ${meeting.id} and its transcript/summary files? This cannot be undone.`,
-  );
-  if (!confirmed) {
-    return;
-  }
-  error.value = "";
-  try {
-    await deleteMeeting(meeting.id);
-    // If the last item of a page was removed, step back one page.
-    if (meetings.value.length === 1 && offset.value > 0) {
-      offset.value -= PAGE_SIZE;
-    }
-    refresh();
-  } catch (e) {
-    error.value = (e && e.message) || "Failed to delete the meeting.";
-  }
 }
 
 onMounted(() => {
@@ -248,21 +188,12 @@ onUnmounted(() => {
 
     <section class="panel">
       <h2>Meetings</h2>
-      <MeetingsTable
-        :items="meetings"
-        :loading="loading"
-        @open="onOpen"
-        @view="onView"
-        @download="onDownload"
-        @delete="onDelete"
-      />
+      <MeetingsTable :items="meetings" :loading="loading" @open="onOpen" />
       <div class="pager">
         <span class="muted">{{ rangeText }}</span>
         <button type="button" class="btn ghost" :disabled="!hasPrev" @click="prevPage">Previous</button>
         <button type="button" class="btn ghost" :disabled="!hasNext" @click="nextPage">Next</button>
       </div>
     </section>
-
-    <TranscriptDialog ref="viewer" />
   </section>
 </template>

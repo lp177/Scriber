@@ -417,14 +417,12 @@ Open <http://localhost:8080> and sign in with `ADMIN_USERNAME` /
 - **Dashboard** — stat cards (total meetings, completed, total duration,
   words transcribed, live active sessions, errors), a "meetings per day"
   chart for the last 30 days, and the meetings table with the **estimated AI
-  cost** of each meeting. Click anywhere on a row to open the meeting page;
-  from the action bar you can view or download the transcript and the summary,
-  download the kept meeting audio, and delete meetings (files and database
-  row).
+  cost** of each meeting. Click anywhere on a row to open the meeting page.
 - **Meeting page** — details and the **AI usage** panel (every provider call
   with its model, token counts and estimated cost), play or download the
-  meeting audio, edit the transcript and summary, regenerate the transcript
-  with another engine, and compare any two transcript versions side by side (see
+  meeting audio, edit, download or regenerate the transcript and summary,
+  compare any two transcript versions side by side, and delete the meeting
+  (files and database row) (see
   [Meeting audio & transcript regeneration](#meeting-audio--transcript-regeneration)).
   The **Summary** panel can also generate the summary again from any transcript
   version: when summarization failed at `/scriber stop` it shows a **Retry

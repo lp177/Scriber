@@ -209,6 +209,12 @@ code {
   margin: 0;
 }
 
+.page-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
 .panel {
   background: var(--surface);
   border-radius: var(--radius);
@@ -816,57 +822,9 @@ select:focus,
   padding: 5px 14px;
 }
 
-/* ---------- Dialog viewer ---------- */
-
-dialog.viewer {
-  background: var(--surface);
-  color: var(--text);
-  border: none;
-  border-radius: 16px;
-  padding: 0;
-  width: min(860px, calc(100vw - 32px));
-  max-height: min(85vh, calc(100vh - 32px));
-  box-shadow: var(--elev-6);
-}
-
-dialog.viewer[open] {
-  display: flex;
-  flex-direction: column;
-}
-
-dialog.viewer::backdrop {
-  background: rgba(5, 7, 12, 0.7);
-  backdrop-filter: blur(2px);
-}
-
-.viewer-head {
-  flex: none;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 14px 18px;
-  border-bottom: 1px solid var(--border);
-}
-
-.viewer-head h2 {
-  margin: 0;
-  font-size: 16px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.viewer-sub {
-  color: var(--text-muted);
-  font-weight: 400;
-}
+/* ---------- Meeting metadata & log ---------- */
 
 /* Body content scrolls inside the dialog, never the page. */
-.viewer-body {
-  overflow-y: auto;
-  padding: 16px 18px 20px;
-}
 
 .meta-grid {
   display: grid;
@@ -900,18 +858,6 @@ dialog.viewer::backdrop {
 
 .content-title {
   margin-bottom: 8px;
-}
-
-.viewer-body pre {
-  margin: 0;
-  padding: 12px 14px;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  font-size: 13px;
-  line-height: 1.6;
 }
 
 .log-details pre {

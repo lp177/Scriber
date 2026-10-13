@@ -1,10 +1,11 @@
 <script setup>
 // Meeting detail view: metadata card, an editable transcript and summary (with a
-// Markdown preview toggle), the generation log, and download actions.
+// Markdown preview toggle), the generation log, download actions and deletion.
 import { computed, onMounted, onUnmounted, ref } from "vue";
-import { useRoute } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 import {
   audioUrl,
+  deleteMeeting,
   deleteTranscriptVersion,
   fetchBlob,
   fetchText,
@@ -23,6 +24,7 @@ import { formatCost, formatDate, formatDuration, formatNumber } from "../format.
 import { renderMarkdown } from "../util/markdown.js";
 
 const route = useRoute();
+const router = useRouter();
 const meetingId = String(route.params.id);
 
 const meeting = ref(null);
@@ -67,6 +69,26 @@ async function load() {
   refreshVersions();
   if (summaryJobRunning.value) {
     scheduleSummaryPoll();
+  }
+}
+
+// ---- Delete the whole meeting (files + database row) ----
+const deleting = ref(false);
+
+async function removeMeeting() {
+  const confirmed = window.confirm(
+    `Delete meeting ${meetingId} and its transcript, summary and audio files? This cannot be undone.`,
+  );
+  if (!confirmed) {
+    return;
+  }
+  deleting.value = true;
+  try {
+    await deleteMeeting(meetingId);
+    router.push("/");
+  } catch (e) {
+    showToast((e && e.message) || "Failed to delete the meeting.", "error");
+    deleting.value = false;
   }
 }
 
@@ -492,7 +514,18 @@ onUnmounted(() => {
     <template v-else-if="meeting">
       <div class="page-head">
         <h1>Meeting</h1>
-        <span class="badge" :class="meeting.status">{{ meeting.status }}</span>
+        <div class="page-head-actions">
+          <span class="badge" :class="meeting.status">{{ meeting.status }}</span>
+          <button
+            type="button"
+            class="btn ghost danger-btn"
+            :disabled="deleting || meeting.status === 'recording'"
+            :title="meeting.status === 'recording' ? 'Cannot delete while recording' : 'Delete this meeting and its files'"
+            @click="removeMeeting"
+          >
+            {{ deleting ? "Deleting…" : "Delete meeting" }}
+          </button>
+        </div>
       </div>
       <p class="muted meeting-id">{{ meeting.id }}</p>
 
