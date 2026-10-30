@@ -100,7 +100,11 @@ def engine_catalog() -> list[dict]:
             "ready": voxtral.ready,
             "requires": "VOXTRAL_API_KEY",
             "default_model": voxtral.model or "voxtral-mini-latest",
-            "models": ["voxtral-mini-latest", "voxtral-small-latest"],
+            "models": [
+                "voxtral-mini-latest",
+                "voxtral-mini-transcribe-3-0",
+                "voxtral-small-transcribe-3-0",
+            ],
         },
         {
             "id": "elevenlabs",

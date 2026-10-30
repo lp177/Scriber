@@ -219,7 +219,7 @@ anyone else.
 | `AUDIO_KEEP` | `true` | yes | keep each meeting's audio (play/download + [transcript regeneration](#meeting-audio--transcript-regeneration)) |
 | `AUDIO_RETENTION_DAYS` | `30` | yes | days before kept audio is auto-deleted; `0` = never expire |
 | `VOXTRAL_API_KEY` | *(empty)* | yes | Mistral API key — unlocks the Voxtral regeneration engine |
-| `VOXTRAL_MODEL` | `voxtral-mini-latest` | yes | Voxtral model ID |
+| `VOXTRAL_MODEL` | `voxtral-mini-latest` | yes | Voxtral model ID — `voxtral-mini-transcribe-3-0` / `voxtral-small-transcribe-3-0` (Voxtral 3) for better accuracy |
 | `VOXTRAL_BASE_URL` | `https://api.mistral.ai` | yes | Mistral API base URL |
 | `ELEVENLABS_API_KEY` | *(empty)* | yes | ElevenLabs API key — unlocks the Scribe regeneration engine |
 | `ELEVENLABS_MODEL` | `scribe_v2` | yes | ElevenLabs speech-to-text model ID |
