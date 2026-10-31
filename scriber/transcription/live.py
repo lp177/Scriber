@@ -92,7 +92,7 @@ class LiveTranscriber:
             else:
                 mono, _diag = downmix_to_mono(pcm)
                 segment = mono[::3]  # 48 kHz -> 16 kHz decimation
-                if providers._too_short(segment):
+                if providers._skip_for_cloud(segment):
                     return ""
                 effective = cfg.whisper_language if language is None else language
                 try:

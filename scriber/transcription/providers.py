@@ -44,6 +44,13 @@ API_BACKOFF_MAX = 60.0
 MIN_SEGMENT_SECONDS = 0.4
 #: Sample rate of the decoded archive segments handed to the engines.
 SAMPLE_RATE = 16_000
+#: Segments whose loudest 20 ms frame stays below this RMS (int16 scale) are
+#: silence — gated breath, comfort noise — and are not sent to a cloud engine:
+#: they are billed for nothing and invite hallucinated text. Measured on a real
+#: meeting, speech peaks well above it (typically ~2000) while silent segments
+#: sit near 0; local Whisper keeps its own VAD instead.
+SILENCE_PEAK_RMS = 300.0
+_FRAME_SAMPLES = SAMPLE_RATE // 50
 
 #: Common local Whisper model profiles offered in the dashboard. Any other
 #: faster-whisper model name typed by the user works too.
@@ -133,6 +140,20 @@ def engine_label(engine: str, model: str) -> str:
 
 def _too_short(segment: np.ndarray) -> bool:
     return segment.size < int(SAMPLE_RATE * MIN_SEGMENT_SECONDS)
+
+
+def _too_quiet(segment: np.ndarray) -> bool:
+    """True when no 20 ms frame of the segment reaches speech level."""
+    usable = segment.size - segment.size % _FRAME_SAMPLES
+    if usable == 0:
+        return True
+    frames = segment[:usable].astype(np.float32).reshape(-1, _FRAME_SAMPLES)
+    return float(np.sqrt((frames * frames).mean(axis=1)).max()) < SILENCE_PEAK_RMS
+
+
+def _skip_for_cloud(segment: np.ndarray) -> bool:
+    """Segments not worth a (billed) cloud transcription request."""
+    return _too_short(segment) or _too_quiet(segment)
 
 
 async def transcribe_segments(
@@ -257,7 +278,7 @@ async def _api_segments(
 
         async def one(segment: np.ndarray) -> str:
             nonlocal pause_until
-            if _too_short(segment):
+            if _skip_for_cloud(segment):
                 progress()
                 return ""
             async with semaphore:
