@@ -66,7 +66,7 @@ def start_job(
 
     ``transcript_path`` is the (already validated) transcript version to
     summarize and ``source_label`` its display name. With ``post_to_discord``
-    the finished summary is also sent to the meeting's text channel through
+    the finished summary is also sent to the recorded voice channel's chat through
     ``bot``. ``refresh_memory`` forces (True) or skips (False) the participant
     memory refresh; None refreshes only when the meeting had no summary yet.
 
@@ -196,7 +196,7 @@ async def _summarize(meeting_id: str, job: dict, transcript_path: Path) -> dict:
 
 
 async def _post_to_discord(bot: Any, meeting_id: str, result: dict) -> bool:
-    """Send the summary to the meeting's text channel. Best-effort, never raises."""
+    """Send the summary to the recorded voice channel's chat. Best-effort, never raises."""
     row, summary = result["row"], result["summary"]
     try:
         # Imported lazily: the summary package must stay importable without the
@@ -205,7 +205,12 @@ async def _post_to_discord(bot: Any, meeting_id: str, result: dict) -> bool:
 
         from scriber.bot.commands import ATTACH_THRESHOLD, split_message
 
-        channel_id = int(row.get("channel_id") or 0)
+        # Only ever the recorded voice channel's own chat: older meetings stored
+        # in channel_id whatever channel /scriber start was typed in, which may
+        # be far more widely readable than the meeting itself.
+        channel_id = int(row.get("voice_channel_id") or 0)
+        if not channel_id:
+            raise ValueError("the meeting has no recorded voice channel")
         channel = bot.get_channel(channel_id) or await bot.fetch_channel(channel_id)
         voice_name = row.get("voice_channel_name") or "the meeting"
         day = str(row.get("started_at") or "")[:10]

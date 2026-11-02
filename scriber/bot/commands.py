@@ -104,6 +104,13 @@ class ScribCommands(app_commands.Group):
         else:
             await channel.send(content)
 
+    @staticmethod
+    def _in_channel(interaction: discord.Interaction, channel: Any) -> bool:
+        """True when *interaction* was run in *channel* itself."""
+        return interaction.channel_id is not None and interaction.channel_id == getattr(
+            channel, "id", None
+        )
+
     async def _send(
         self,
         interaction: discord.Interaction | None,
@@ -112,14 +119,20 @@ class ScribCommands(app_commands.Group):
         file_path: Path | None = None,
         filename: str | None = None,
     ) -> None:
-        """Send via the deferred interaction followup, falling back to the channel.
+        """Post *content* in the meeting channel, and only there.
 
-        When *interaction* is None (an automatic stop, not a slash command) the
-        message goes straight to the channel. The followup webhook token also
-        expires after 15 minutes, so very long transcription runs likewise fall
-        back to the channel.
+        A meeting's notices, summary and transcript go to the channel it was
+        recorded in (the voice channel's own chat), never to wherever a slash
+        command happened to be run: otherwise ``/scriber stop`` typed in a
+        public channel would publish the minutes of a private meeting there.
+
+        When the command was run in the meeting channel, the deferred followup
+        carries the message (falling back to the channel once the followup token
+        expires after 15 minutes). Run anywhere else, the message goes to the
+        channel and the caller only gets an ephemeral pointer to it. With no
+        *interaction* (an automatic stop) it goes straight to the channel.
         """
-        if interaction is not None:
+        if interaction is not None and self._in_channel(interaction, channel):
             try:
                 if file_path is not None:
                     await interaction.followup.send(
@@ -131,6 +144,25 @@ class ScribCommands(app_commands.Group):
             except discord.HTTPException:
                 pass
         await self._send_channel(channel, content, file_path, filename)
+        if interaction is not None and not self._in_channel(interaction, channel):
+            with contextlib.suppress(discord.HTTPException):
+                await interaction.followup.send(
+                    f"Posted in {getattr(channel, 'mention', 'the meeting channel')}.",
+                    ephemeral=True,
+                )
+
+    @staticmethod
+    def _can_post_in(member: Any, channel: Any) -> bool:
+        """True when *member* may read and send messages in *channel*.
+
+        This is what ``/scriber stop`` and ``/scriber cancel`` require: only
+        someone who can take part in the recorded channel's chat may end its
+        recording (and so trigger the posting of its minutes there).
+        """
+        if not isinstance(member, discord.Member) or channel is None:
+            return False
+        perms = channel.permissions_for(member)
+        return perms.view_channel and perms.send_messages
 
     async def _handle_summary_failure(
         self, interaction: discord.Interaction | None, session: MeetingSession, reason: str
@@ -194,13 +226,17 @@ class ScribCommands(app_commands.Group):
         # the channel, instead of a ~60s voice-handshake timeout that surfaces
         # as a bare, unhelpful error. permissions_for() resolves the channel's
         # role/member overwrites, so this catches a "Private" channel that
-        # denies View Channel / Connect to the bot's role.
+        # denies View Channel / Connect to the bot's role. The bot also posts
+        # the notice and the minutes in that channel's own chat, so it must be
+        # able to send messages and files there.
         bot_perms = voice_state.channel.permissions_for(guild.me)
         missing = [
             label
             for label, granted in (
                 ("View Channel", bot_perms.view_channel),
                 ("Connect", bot_perms.connect),
+                ("Send Messages", bot_perms.send_messages),
+                ("Attach Files", bot_perms.attach_files),
             )
             if not granted
         ]
@@ -223,10 +259,15 @@ class ScribCommands(app_commands.Group):
                 await interaction.response.send_message(str(exc), ephemeral=True)
                 return
 
-        await interaction.response.defer()
+        # Everything about this meeting is posted in the voice channel's own
+        # chat; when the command was run elsewhere, the caller only gets an
+        # ephemeral pointer there.
+        await interaction.response.defer(
+            ephemeral=not self._in_channel(interaction, voice_state.channel)
+        )
         session = MeetingSession(
             guild=guild,
-            text_channel=interaction.channel,
+            text_channel=voice_state.channel,
             voice_channel=voice_state.channel,
             started_by=member,
             transcriber=self.bot.transcriber,
@@ -297,13 +338,31 @@ class ScribCommands(app_commands.Group):
                 "This command can only be used inside a server.", ephemeral=True
             )
             return
-        if guild.id not in self.bot.active_sessions:
+        session = self.bot.active_sessions.get(guild.id)
+        if session is None:
             await interaction.response.send_message(
                 "There is no active recording session in this server.", ephemeral=True
             )
             return
-        await interaction.response.defer()
+        if not await self._check_meeting_member(interaction, session):
+            return
+        await interaction.response.defer(
+            ephemeral=not self._in_channel(interaction, session.text_channel)
+        )
         await self._finalize_and_post(guild.id, interaction=interaction)
+
+    async def _check_meeting_member(
+        self, interaction: discord.Interaction, session: MeetingSession
+    ) -> bool:
+        """Refuse (ephemerally) a stop/cancel from someone outside the meeting's chat."""
+        if self._can_post_in(interaction.user, session.text_channel):
+            return True
+        await interaction.response.send_message(
+            "Only members who can send messages in the channel being recorded can "
+            "stop or cancel this recording.",
+            ephemeral=True,
+        )
+        return False
 
     async def stop_session_automatically(self, guild_id: int, reason_note: str) -> None:
         """Automatically finish a session (left alone / inactivity), posting *reason_note*."""
@@ -474,13 +533,18 @@ class ScribCommands(app_commands.Group):
                 "This command can only be used inside a server.", ephemeral=True
             )
             return
-        if guild.id not in self.bot.active_sessions:
+        active = self.bot.active_sessions.get(guild.id)
+        if active is None:
             await interaction.response.send_message(
                 "There is no active recording session in this server.", ephemeral=True
             )
             return
+        if not await self._check_meeting_member(interaction, active):
+            return
 
-        await interaction.response.defer()
+        await interaction.response.defer(
+            ephemeral=not self._in_channel(interaction, active.text_channel)
+        )
         # Claim the session atomically AFTER the defer round-trip: an auto-stop
         # can finalize it during that await, and cancelling a session that
         # stop() is concurrently finalizing would race the audio archive

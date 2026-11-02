@@ -1,7 +1,7 @@
 """Meeting text chat: capture the meeting channel's messages, relay dashboard messages.
 
 While a meeting is recorded, every message posted in its text channel (the
-channel ``/scriber start`` was run in — usually the voice channel's own chat) is
+voice channel's own chat, where the bot posts everything about the meeting) is
 stored in the ``meeting_chat`` table, with later edits and deletions applied.
 The dashboard shows that chat interleaved with the live transcript and can post
 into the channel through the bot, so someone who is not in the voice channel

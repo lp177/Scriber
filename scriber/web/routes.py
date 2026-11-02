@@ -14,7 +14,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, PlainTextResponse, Response
 from pydantic import BaseModel
 
-from scriber import audio, config, database
+from scriber import alerts, audio, config, database
 from scriber.memory import MemoryManager
 from scriber.summary import regen as summary_regen
 from scriber.transcription import providers as stt_providers
@@ -989,18 +989,42 @@ async def get_settings(_user: str = Depends(require_auth)) -> dict[str, Any]:
 
 @router.put("/settings")
 async def put_settings(
-    changes: dict[str, str | int | float | bool], _user: str = Depends(require_auth)
+    changes: dict[str, str | int | float | bool],
+    request: Request,
+    user: str = Depends(require_auth),
 ) -> dict[str, Any]:
     """Persist editable configuration changes; 400 on any non-editable key.
 
     Scalar values are accepted (a number input naturally submits a JSON
     number); ``ConfigManager.update`` stringifies them before persisting.
+    Security-sensitive changes (endpoints, keys, admin login, provider kind)
+    and refused endpoint changes raise a security alert.
     """
     manager = _manager()
+    sensitive = [key for key in changes if config.is_security_sensitive(key)]
+    before = {key: manager.current_value(key) for key in sensitive}
     try:
         manager.update(changes)
     except ValueError as exc:
+        if any(config.endpoint_key_for(key) for key in changes):
+            alerts.security_alert(
+                "Refused provider endpoint change",
+                [f"Refused: {exc}", "Keys submitted: " + ", ".join(sorted(changes))],
+                user=user,
+                request=request,
+            )
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    details: list[str] = []
+    for key in sensitive:
+        after = manager.current_value(key)
+        if after == before[key]:
+            continue
+        if config.is_secret(key):
+            details.append(f"{key}: changed (secret value not shown)")
+        else:
+            details.append(f"{key}: {before[key] or '(empty)'} -> {after or '(empty)'}")
+    if details:
+        alerts.security_alert("Sensitive settings changed", details, user=user, request=request)
     return {"ok": True, "fields": manager.display_fields()}
 
 
@@ -1018,7 +1042,7 @@ async def list_tokens(_user: str = Depends(require_auth)) -> dict[str, Any]:
 
 @router.post("/tokens")
 async def create_api_token(
-    body: TokenCreate, _user: str = Depends(require_auth)
+    body: TokenCreate, request: Request, user: str = Depends(require_auth)
 ) -> dict[str, Any]:
     """Mint a new API token and return the plaintext secret exactly once."""
     name = body.name.strip()
@@ -1036,13 +1060,20 @@ async def create_api_token(
         api_auth.hash_token(token),
         scope,
     )
+    # An API token reads every meeting, transcript and audio file.
+    alerts.security_alert(
+        "API token created",
+        [f"Name: {name}", f"Scope: {scope}", f"Prefix: {api_auth.token_prefix(token)}"],
+        user=user,
+        request=request,
+    )
     # The plaintext token is shown once here and never stored — only its hash is.
     return {"token": token, "api_token": row}
 
 
 @router.patch("/tokens/{token_id}")
 async def update_api_token(
-    token_id: str, body: TokenUpdate, _user: str = Depends(require_auth)
+    token_id: str, body: TokenUpdate, request: Request, user: str = Depends(require_auth)
 ) -> dict[str, Any]:
     """Rename an API token and/or change its scope."""
     name = body.name.strip() if body.name is not None else None
@@ -1054,9 +1085,17 @@ async def update_api_token(
             scope = api_auth.normalize_scope(body.scope)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+    previous = next((t for t in database.list_api_tokens() if t.get("id") == token_id), None)
     row = database.update_api_token(token_id, name=name, scope=scope)
     if row is None:
         raise HTTPException(status_code=404, detail="Token not found")
+    if scope == "readwrite" and previous is not None and previous.get("scope") != "readwrite":
+        alerts.security_alert(
+            "API token upgraded to read & write",
+            [f"Name: {row.get('name')}", f"Prefix: {row.get('token_prefix')}"],
+            user=user,
+            request=request,
+        )
     return {"ok": True, "api_token": row}
 
 

@@ -441,6 +441,10 @@ async def _google_one(
     (e.g. ``fr-FR``).
     """
     location = provider.location or "eu"
+    # Spliced into the host name: anything but a region name could send the
+    # API key to another server.
+    if not config.GOOGLE_LOCATION_RE.match(location):
+        raise TranscriptionProviderError(f"Invalid GOOGLE_SPEECH_LOCATION {location!r}.")
     host = (
         "speech.googleapis.com"
         if location == "global"

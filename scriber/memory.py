@@ -29,6 +29,29 @@ MEMORY_CONTEXT_CHAR_LIMIT = 4000
 #: Transcript excerpt cap (characters) inside the memory-update prompt.
 MEMORY_TRANSCRIPT_CHAR_LIMIT = 12000
 
+#: Memory sections never injected into a summary prompt. "Recent meetings"
+#: recaps every meeting the participant attended — private ones included — and
+#: a summary may be posted to a channel far more widely readable than those, so
+#: it only feeds the memory refresh, never the minutes of another meeting.
+SUMMARY_CONTEXT_EXCLUDED_SECTIONS = ("recent meetings",)
+
+
+def strip_sections(markdown: str, titles: tuple[str, ...]) -> str:
+    """Remove the ``#``/``##`` sections whose title (case-insensitive) is in *titles*.
+
+    A section runs from its heading to the next heading of level 1 or 2.
+    """
+    kept: list[str] = []
+    skipping = False
+    for line in markdown.splitlines():
+        stripped = line.lstrip()
+        if stripped.startswith("# ") or stripped.startswith("## "):
+            title = stripped.lstrip("#").strip().rstrip(":").strip().lower()
+            skipping = title in titles
+        if not skipping:
+            kept.append(line)
+    return "\n".join(kept).strip()
+
 #: System prompt driving the per-user memory refresh.
 MEMORY_SYSTEM_PROMPT = (
     "You maintain a concise personal memory file, written in Markdown, about "
@@ -109,7 +132,9 @@ class MemoryManager:
 
         ``participants`` is a list of ``(user_id, display_name)`` pairs. For each
         participant that has a non-empty memory file, a section
-        ``"### {display_name}\\n" + memory`` is appended, verbatim when within
+        ``"### {display_name}\\n" + memory`` is appended, minus the
+        :data:`SUMMARY_CONTEXT_EXCLUDED_SECTIONS` (other meetings' recaps must
+        not leak into these minutes), verbatim when within
         :data:`MEMORY_CONTEXT_CHAR_LIMIT` characters, otherwise truncated to the
         first ``MEMORY_CONTEXT_CHAR_LIMIT`` characters followed by
         ``"\\n…(truncated)"``.
@@ -119,7 +144,7 @@ class MemoryManager:
         """
         sections: list[str] = []
         for user_id, display_name in participants:
-            memory = self.read(user_id)
+            memory = strip_sections(self.read(user_id), SUMMARY_CONTEXT_EXCLUDED_SECTIONS)
             if not memory.strip():
                 continue
             if len(memory) > MEMORY_CONTEXT_CHAR_LIMIT:

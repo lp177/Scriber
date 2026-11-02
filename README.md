@@ -29,7 +29,7 @@ transcripts and summaries, and change settings — all from one container.
 - 🔴 One-command recording: `/scriber start`, `/scriber stop`, `/scriber cancel`
 - 🗣️ Per-speaker transcription with timestamps — **locally** (faster-whisper, the default) or via a cloud STT engine (Mistral **Voxtral**, **ElevenLabs Scribe**, **Google Chirp**) with automatic fallback to local Whisper
 - 🤖 Meeting minutes via Anthropic, OpenAI, or a self-hosted model (Ollama, vLLM, LM Studio, LocalAI)
-- 📢 Automatic **recording notice** posted in the text channel so everyone knows recording started, what happens with the audio, and how to opt out (leave the channel)
+- 📢 Automatic **recording notice** posted in the voice channel's chat so everyone knows recording started, what happens with the audio, and how to opt out (leave the channel)
 - 🎧 Optional **meeting audio keeping** (on by default): play or download each meeting's recording from the dashboard, with an automatic expiration you control (default 30 days, `0` = keep forever)
 - 🔁 **Transcript regeneration**: re-transcribe the saved audio with another engine — any local Whisper profile (`tiny` … `large-v3`, `turbo`), Mistral **Voxtral**, **ElevenLabs Scribe**, or **Google Chirp** — and compare any two versions side by side
 - 🖥️ Admin dashboard: stats, meeting history with the **estimated AI cost** of each meeting, transcript/summary viewer and downloads, live settings
@@ -40,8 +40,9 @@ transcripts and summaries, and change settings — all from one container.
 ## How it works
 
 1. **`/scriber start`** — you must be in a voice channel. Scriber joins it, starts
-   recording, and posts a recording notice in the text channel where you
-   invoked the command. Audio is segmented per speaker and transcribed
+   recording, and posts a recording notice in that voice channel's own chat —
+   the notice, the minutes and any fallback transcript are only ever posted
+   there, wherever the command was typed. Audio is segmented per speaker and transcribed
    while the meeting is running — locally with Whisper by default, or by the
    cloud engine you picked with `TRANSCRIBE_ENGINE` (the notice says which,
    and the bot falls back to local Whisper if the cloud API fails).
@@ -203,6 +204,24 @@ Set `ADMIN_USERNAME` and `ADMIN_PASSWORD` for the dashboard login. The
 default password is `change-me` — change it before exposing port 8080 to
 anyone else.
 
+### Security alerts by e-mail
+
+Whoever holds the dashboard can change where the provider API keys are sent.
+Two safeguards apply:
+
+- Changing a provider endpoint (`SUMMARY_BASE_URL_<n>`, `VOXTRAL_BASE_URL`,
+  `ELEVENLABS_BASE_URL`, `GOOGLE_SPEECH_LOCATION`) from the dashboard is refused
+  unless that provider's API key is entered again in the same save, so a stored
+  key is never sent to a new server.
+- With `ALERT_EMAIL_TO` and `SMTP_HOST` set, Scriber e-mails a security alert
+  when an endpoint, an API key, the admin login or a provider kind changes,
+  when an endpoint change is refused, and when an API token is created or
+  upgraded to read & write. Secret values are never included. Alerts are also
+  logged (`SECURITY:` lines) whether or not e-mail is configured.
+
+The `ALERT_EMAIL_TO` / `SMTP_*` keys can only be set in `.env`, never from the
+dashboard, so a hijacked dashboard can neither silence nor redirect the alerts.
+
 ### Environment variable reference
 
 | Key | Default | Editable via dashboard | Purpose |
@@ -241,6 +260,13 @@ anyone else.
 | `MCP_HOST` | `0.0.0.0` | no | MCP server bind address (same rules as `WEB_HOST`) |
 | `MCP_PORT` | `8081` | no | MCP server port |
 | `SCRIBER_DATA_DIR` | `./data` | no | data directory (`/data` in the container) |
+| `ALERT_EMAIL_TO` | *(empty)* | no | comma-separated recipients of [security alerts](#security-alerts-by-e-mail); empty = log only |
+| `SMTP_HOST` | *(empty)* | no | SMTP server for the alerts |
+| `SMTP_PORT` | `587` | no | SMTP port (`465` with `SMTP_SECURITY=ssl`) |
+| `SMTP_SECURITY` | `starttls` | no | `starttls` \| `ssl` \| `none` |
+| `SMTP_USERNAME` | *(empty)* | no | SMTP login (no login when empty) |
+| `SMTP_PASSWORD` | *(empty)* | no | SMTP password |
+| `SMTP_FROM` | `SMTP_USERNAME` | no | sender address |
 
 ## Run with Docker
 
@@ -377,8 +403,8 @@ unreachable — see [Troubleshooting](#troubleshooting).
 | --- | --- |
 | `/scriber start` | Join your current voice channel, post the recording notice, and start recording. One session per server at a time. |
 | `/scriber start lang:<code>` | Same, but transcribe this meeting in a specific language (see below), overriding the configured default. |
-| `/scriber stop` | Stop recording, finish the transcription, generate the summary and post it in the meeting's text channel. |
-| `/scriber cancel` | Stop recording and discard everything — no transcript is kept, nothing is sent to any AI provider. |
+| `/scriber stop` | Stop recording, finish the transcription, generate the summary and post it in the recorded voice channel's chat. Only members who can send messages in that chat may run it. |
+| `/scriber cancel` | Stop recording and discard everything — no transcript is kept, nothing is sent to any AI provider. Same restriction as `stop`. |
 
 ### Transcription language
 

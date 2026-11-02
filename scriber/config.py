@@ -65,6 +65,16 @@ FIXED_DEFAULTS: dict[str, str] = {
     # JSON object overriding/extending the built-in per-model price table used
     # for the dashboard's cost estimates (see scriber.summary.pricing).
     "MODEL_PRICING": "",
+    # Security e-mail alerts (see scriber.alerts). Deliberately NOT editable
+    # from the dashboard: whoever hijacks it must not be able to silence or
+    # redirect the alerts about what they do there.
+    "ALERT_EMAIL_TO": "",
+    "SMTP_HOST": "",
+    "SMTP_PORT": "587",
+    "SMTP_SECURITY": "starttls",
+    "SMTP_USERNAME": "",
+    "SMTP_PASSWORD": "",
+    "SMTP_FROM": "",
 }
 
 # Values accepted as "on" for boolean keys (MCP_ENABLED).
@@ -99,7 +109,25 @@ FIXED_SECRET_KEYS: set[str] = {
     "VOXTRAL_API_KEY",
     "ELEVENLABS_API_KEY",
     "GOOGLE_SPEECH_API_KEY",
+    "SMTP_PASSWORD",
 }
+
+# Keys deciding WHERE a stored API key is sent, mapped to that API key. Changing
+# one from the dashboard requires re-entering the key in the same save, so a
+# hijacked dashboard cannot point a provider at its own server and collect the
+# stored key (and the transcripts) on the next request. Indexed
+# ``SUMMARY_BASE_URL_<n>`` keys follow the same rule (see endpoint_key_for).
+_ENDPOINT_KEYS: dict[str, str] = {
+    "SUMMARY_BASE_URL": "SUMMARY_API_KEY",
+    "VOXTRAL_BASE_URL": "VOXTRAL_API_KEY",
+    "ELEVENLABS_BASE_URL": "ELEVENLABS_API_KEY",
+    # Becomes part of the Google endpoint's host name.
+    "GOOGLE_SPEECH_LOCATION": "GOOGLE_SPEECH_API_KEY",
+}
+
+#: A Google Speech location ("eu", "us", "global", "europe-west4"…): it is
+#: spliced into the endpoint host name, so nothing else may get through.
+GOOGLE_LOCATION_RE = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
 
 # The five suffixes that make up one summary provider block.
 PROVIDER_ATTRS: tuple[str, ...] = ("PROVIDER", "API_KEY", "MODEL", "MEMORY_MODEL", "BASE_URL")
@@ -133,6 +161,24 @@ def is_editable(key: str) -> bool:
         or key in _LEGACY_KEYS
         or _PROVIDER_KEY_RE.match(key) is not None
     )
+
+
+def endpoint_key_for(key: str) -> str | None:
+    """Return the API key whose destination *key* decides, or None."""
+    match = _PROVIDER_KEY_RE.match(key)
+    if match is not None:
+        return f"SUMMARY_API_KEY_{match.group(2)}" if match.group(1) == "BASE_URL" else None
+    return _ENDPOINT_KEYS.get(key)
+
+
+def is_security_sensitive(key: str) -> bool:
+    """True for changes worth a security alert: secrets, endpoints, admin login, provider kind."""
+    if is_secret(key) or endpoint_key_for(key) is not None:
+        return True
+    if key in ("ADMIN_USERNAME", "SUMMARY_PROVIDER"):
+        return True
+    match = _PROVIDER_KEY_RE.match(key)
+    return match is not None and match.group(1) == "PROVIDER"
 
 
 def is_secret(key: str) -> bool:
@@ -195,6 +241,25 @@ class SttProviderConfig:
 
 
 @dataclasses.dataclass
+class AlertEmailConfig:
+    """Where security alerts are e-mailed (``ALERT_EMAIL_TO`` + ``SMTP_*``)."""
+
+    to: list[str]
+    host: str
+    port: int
+    #: "starttls" (default, port 587), "ssl" (port 465) or "none".
+    security: str
+    username: str
+    password: str
+    sender: str
+
+    @property
+    def enabled(self) -> bool:
+        """Alerts are sent only when a recipient and an SMTP host are set."""
+        return bool(self.to and self.host)
+
+
+@dataclasses.dataclass
 class Config:
     """Immutable snapshot of the resolved configuration."""
 
@@ -224,6 +289,7 @@ class Config:
     #: Raw ``MODEL_PRICING`` JSON (price-table overrides), parsed lazily by
     #: :mod:`scriber.summary.pricing`.
     model_pricing: str
+    alert_email: AlertEmailConfig
 
 
 class ConfigManager:
@@ -309,7 +375,7 @@ class ConfigManager:
             fixed["WEB_SECRET"] = generated
 
         ports: dict[str, int] = {}
-        for key in ("WEB_PORT", "MCP_PORT"):
+        for key in ("WEB_PORT", "MCP_PORT", "SMTP_PORT"):
             try:
                 ports[key] = int(fixed[key])
             except ValueError as exc:
@@ -371,6 +437,15 @@ class ConfigManager:
             mcp_port=ports["MCP_PORT"],
             data_dir=pathlib.Path(fixed["SCRIBER_DATA_DIR"]),
             model_pricing=fixed["MODEL_PRICING"],
+            alert_email=AlertEmailConfig(
+                to=[a.strip() for a in fixed["ALERT_EMAIL_TO"].split(",") if a.strip()],
+                host=fixed["SMTP_HOST"].strip(),
+                port=ports["SMTP_PORT"],
+                security=fixed["SMTP_SECURITY"].strip().lower() or "starttls",
+                username=fixed["SMTP_USERNAME"].strip(),
+                password=fixed["SMTP_PASSWORD"],
+                sender=fixed["SMTP_FROM"].strip() or fixed["SMTP_USERNAME"].strip(),
+            ),
         )
         return self._config
 
@@ -386,9 +461,52 @@ class ConfigManager:
             raise ValueError(
                 "Non-editable configuration key(s): " + ", ".join(sorted(invalid))
             )
+        self.check_endpoint_changes(changes)
         for key, value in changes.items():
             self._persist(key, str(value))
         return self.reload()
+
+    def current_value(self, key: str) -> str:
+        """The effective value of *key*, provider keys included (legacy = provider 1)."""
+        match = _PROVIDER_KEY_RE.match(key)
+        if match is not None or key in _LEGACY_KEYS:
+            attr, index = (
+                (match.group(1), int(match.group(2)))
+                if match is not None
+                else (key.removeprefix("SUMMARY_"), 1)
+            )
+            for provider in self._config.summary_providers:
+                if provider.index == index:
+                    return str(getattr(provider, attr.lower(), "") or "")
+            return ""
+        return self._fixed.get(key, "")
+
+    def check_endpoint_changes(self, changes: dict) -> None:
+        """Refuse an endpoint change that would send a stored key somewhere new.
+
+        Raises ValueError when a base URL (or the Google location) changes while
+        its provider already holds an API key that is not re-entered in the
+        same *changes*, or when a Google location is not a plain region name.
+        """
+        location = changes.get("GOOGLE_SPEECH_LOCATION")
+        if location is not None and str(location).strip():
+            if not GOOGLE_LOCATION_RE.match(str(location).strip()):
+                raise ValueError(
+                    "GOOGLE_SPEECH_LOCATION must be a region name such as eu, us, "
+                    "global or europe-west4."
+                )
+        for key, value in changes.items():
+            api_key = endpoint_key_for(key)
+            if api_key is None or str(value).strip() == self.current_value(key).strip():
+                continue
+            if not self.current_value(api_key):
+                continue  # nothing stored that could leak
+            new_key = str(changes.get(api_key) or "").strip()
+            if not new_key or new_key == _MASK:
+                raise ValueError(
+                    f"Changing {key} requires entering {api_key} again in the same "
+                    "save: a stored API key is never sent to a new endpoint."
+                )
 
     def _display_value(self, key: str, raw: str) -> dict:
         """Build one display-field entry, masking secret values."""
@@ -452,6 +570,13 @@ class ConfigManager:
             "MCP_PORT",
             "SCRIBER_DATA_DIR",
             "MODEL_PRICING",
+            "ALERT_EMAIL_TO",
+            "SMTP_HOST",
+            "SMTP_PORT",
+            "SMTP_SECURITY",
+            "SMTP_USERNAME",
+            "SMTP_PASSWORD",
+            "SMTP_FROM",
         ):
             fields.append(self._display_value(key, self._fixed[key]))
         return fields

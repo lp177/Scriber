@@ -163,7 +163,7 @@
             <tbody>
               <tr><td><code>View Channels</code></td><td>See the voice &amp; text channels (required to join a voice channel).</td></tr>
               <tr><td><code>Connect</code></td><td>Join the voice channel to receive audio. <em>Speak is deliberately not requested — the bot only listens.</em></td></tr>
-              <tr><td><code>Send Messages</code></td><td>Post the recording notice and the minutes in the text channel.</td></tr>
+              <tr><td><code>Send Messages</code></td><td>Post the recording notice and the minutes in the voice channel's chat.</td></tr>
               <tr><td><code>Attach Files</code></td><td>Post long transcripts/summaries as an attached <code>.md</code> file.</td></tr>
             </tbody>
           </table>
@@ -210,8 +210,8 @@
           <div class="step-block">
             <div class="n">3</div>
             <div class="b">
-              <h3>Grant the text channel too</h3>
-              <p>In the <strong>text channel</strong> where you'll run <code>/scriber start</code>, make sure the bot has <strong>View Channel</strong>, <strong>Send Messages</strong>, and <strong>Attach Files</strong>. If that text channel is also private, add an explicit allow override for the bot there as well. <em>Attach Files is required</em> — long minutes are posted as an attached file.</p>
+              <h3>Let it post in the channel's chat</h3>
+              <p>Scriber posts the recording notice and the minutes in the <strong>voice channel's own chat</strong> — never in another channel, so a private meeting's minutes stay private. In the same override, also allow <strong>Send Messages</strong> and <strong>Attach Files</strong>. <em>Attach Files is required</em> — long minutes are posted as an attached file. Only members who can send messages in that chat can <code>/scriber stop</code> or <code>/scriber cancel</code> the recording.</p>
             </div>
           </div>
 
@@ -285,7 +285,7 @@ docker run -d --name scriber \
           <h2 id="record">8 · Your first recording</h2>
           <div class="step-block">
             <div class="n">1</div>
-            <div class="b"><h3>Join a voice channel</h3><p>Be in a voice channel of the server, then run <code>/scriber start</code> in a text channel. Add <code>lang:fr</code> (or <code>auto</code>) to override the language for this meeting.</p></div>
+            <div class="b"><h3>Join a voice channel</h3><p>Be in a voice channel of the server, then run <code>/scriber start</code> (ideally from the voice channel's chat — that's where everything is posted). Add <code>lang:fr</code> (or <code>auto</code>) to override the language for this meeting.</p></div>
           </div>
           <div class="step-block">
             <div class="n">2</div>
