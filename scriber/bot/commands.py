@@ -1,4 +1,4 @@
-"""The /scriber slash command group: start, stop and cancel meeting recordings."""
+"""The /scriber slash command group (start, stop, cancel) and its right-click entries."""
 
 from __future__ import annotations
 
@@ -152,6 +152,14 @@ class ScribCommands(app_commands.Group):
                 )
 
     @staticmethod
+    async def _reply(interaction: discord.Interaction, content: str) -> None:
+        """Answer *interaction* ephemerally, whether or not it was already responded to."""
+        if interaction.response.is_done():
+            await interaction.followup.send(content, ephemeral=True)
+        else:
+            await interaction.response.send_message(content, ephemeral=True)
+
+    @staticmethod
     def _can_post_in(member: Any, channel: Any) -> bool:
         """True when *member* may read and send messages in *channel*.
 
@@ -199,6 +207,68 @@ class ScribCommands(app_commands.Group):
         "(defaults to the configured language)."
     )
     async def start(self, interaction: discord.Interaction, lang: str | None = None) -> None:
+        """Start a recording session in the caller's voice channel."""
+        await self.run_start(interaction, lang)
+
+    @app_commands.command(
+        name="stop", description="Stop recording, transcribe the meeting and post the summary."
+    )
+    async def stop(self, interaction: discord.Interaction) -> None:
+        """Finish the active session: transcribe, summarize and post the result."""
+        await self.run_stop(interaction)
+
+    @app_commands.command(
+        name="cancel", description="Stop recording and discard everything without summarizing."
+    )
+    async def cancel(self, interaction: discord.Interaction) -> None:
+        """Abort the active session and discard all captured data."""
+        await self.run_cancel(interaction)
+
+    # -- right-click entries ------------------------------------------------
+
+    def context_menus(self) -> list[app_commands.ContextMenu]:
+        """The user context-menu entries (right-click a member → Apps).
+
+        Discord shows them on every member, not only on the bot, and they take
+        no options: the clicked member is ignored and each entry does what the
+        matching slash command does (``start`` uses the configured language).
+        Cancelling asks for a confirmation first, since a stray click in a menu
+        would otherwise discard a whole meeting.
+        """
+        menus = [
+            app_commands.ContextMenu(name="Scriber: start recording", callback=self._menu_start),
+            app_commands.ContextMenu(name="Scriber: stop & summarize", callback=self._menu_stop),
+            app_commands.ContextMenu(name="Scriber: cancel recording", callback=self._menu_cancel),
+        ]
+        for menu in menus:
+            menu.guild_only = True
+        return menus
+
+    async def _menu_start(self, interaction: discord.Interaction, member: discord.Member) -> None:
+        await self.run_start(interaction)
+
+    async def _menu_stop(self, interaction: discord.Interaction, member: discord.Member) -> None:
+        await self.run_stop(interaction)
+
+    async def _menu_cancel(self, interaction: discord.Interaction, member: discord.Member) -> None:
+        guild = interaction.guild
+        session = self.bot.active_sessions.get(guild.id) if guild is not None else None
+        if guild is None or session is None:
+            await self._reply(interaction, "There is no active recording session in this server.")
+            return
+        if not await self._check_meeting_member(interaction, session):
+            return
+        channel = getattr(session.text_channel, "mention", "the meeting channel")
+        await interaction.response.send_message(
+            f"Discard the recording in {channel}? Its transcript is deleted and no summary "
+            "is made.",
+            view=_ConfirmCancel(self, guild.id, session.meeting_id),
+            ephemeral=True,
+        )
+
+    # -- command bodies -------------------------------------------------------
+
+    async def run_start(self, interaction: discord.Interaction, lang: str | None = None) -> None:
         """Start a recording session in the caller's voice channel."""
         guild = interaction.guild
         member = interaction.user
@@ -327,10 +397,7 @@ class ScribCommands(app_commands.Group):
         )
         await self._send(interaction, session.text_channel, notice)
 
-    @app_commands.command(
-        name="stop", description="Stop recording, transcribe the meeting and post the summary."
-    )
-    async def stop(self, interaction: discord.Interaction) -> None:
+    async def run_stop(self, interaction: discord.Interaction) -> None:
         """Finish the active session: transcribe, summarize and post the result."""
         guild = interaction.guild
         if guild is None:
@@ -357,10 +424,10 @@ class ScribCommands(app_commands.Group):
         """Refuse (ephemerally) a stop/cancel from someone outside the meeting's chat."""
         if self._can_post_in(interaction.user, session.text_channel):
             return True
-        await interaction.response.send_message(
+        await self._reply(
+            interaction,
             "Only members who can send messages in the channel being recorded can "
             "stop or cancel this recording.",
-            ephemeral=True,
         )
         return False
 
@@ -522,29 +589,28 @@ class ScribCommands(app_commands.Group):
                     f"Updated memory for {name} ({result.model}, {result.usage_label()}).",
                 )
 
-    @app_commands.command(
-        name="cancel", description="Stop recording and discard everything without summarizing."
-    )
-    async def cancel(self, interaction: discord.Interaction) -> None:
-        """Abort the active session and discard all captured data."""
+    async def run_cancel(self, interaction: discord.Interaction) -> None:
+        """Abort the active session and discard all captured data.
+
+        *interaction* may already be answered (the confirmation button of the
+        right-click entry edits its message first); replies then go through
+        its followup.
+        """
         guild = interaction.guild
         if guild is None:
-            await interaction.response.send_message(
-                "This command can only be used inside a server.", ephemeral=True
-            )
+            await self._reply(interaction, "This command can only be used inside a server.")
             return
         active = self.bot.active_sessions.get(guild.id)
         if active is None:
-            await interaction.response.send_message(
-                "There is no active recording session in this server.", ephemeral=True
-            )
+            await self._reply(interaction, "There is no active recording session in this server.")
             return
         if not await self._check_meeting_member(interaction, active):
             return
 
-        await interaction.response.defer(
-            ephemeral=not self._in_channel(interaction, active.text_channel)
-        )
+        if not interaction.response.is_done():
+            await interaction.response.defer(
+                ephemeral=not self._in_channel(interaction, active.text_channel)
+            )
         # Claim the session atomically AFTER the defer round-trip: an auto-stop
         # can finalize it during that await, and cancelling a session that
         # stop() is concurrently finalizing would race the audio archive
@@ -573,3 +639,31 @@ class ScribCommands(app_commands.Group):
             session.text_channel,
             "Recording cancelled — the transcript has been discarded.",
         )
+
+
+class _ConfirmCancel(discord.ui.View):
+    """Ephemeral confirmation shown by the "Scriber: cancel recording" entry."""
+
+    def __init__(self, commands: ScribCommands, guild_id: int, meeting_id: str) -> None:
+        super().__init__(timeout=120)
+        self._commands = commands
+        self._guild_id = guild_id
+        self._meeting_id = meeting_id
+
+    @discord.ui.button(label="Discard the recording", style=discord.ButtonStyle.danger)
+    async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        self.stop()
+        session = self._commands.bot.active_sessions.get(self._guild_id)
+        if session is None or session.meeting_id != self._meeting_id:
+            # A confirmation must never cancel a meeting started after it was shown.
+            await interaction.response.edit_message(
+                content="That recording is already over.", view=None
+            )
+            return
+        await interaction.response.edit_message(content="Cancelling the recording…", view=None)
+        await self._commands.run_cancel(interaction)
+
+    @discord.ui.button(label="Keep recording", style=discord.ButtonStyle.secondary)
+    async def keep(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        self.stop()
+        await interaction.response.edit_message(content="The recording continues.", view=None)

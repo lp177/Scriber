@@ -176,7 +176,7 @@ class ScribBot(commands.Bot):
         await chat.on_raw_message_delete(self, payload)
 
     async def setup_hook(self) -> None:
-        """Register the /scriber command group and sync the application command tree.
+        """Register the /scriber commands (slash + right-click) and sync the command tree.
 
         A refused command sync (typically the bot was not invited with the
         ``applications.commands`` scope, or is not in the target server) is
@@ -186,6 +186,8 @@ class ScribBot(commands.Bot):
         """
         self.scrib_commands = ScribCommands(self)
         self.tree.add_command(self.scrib_commands)
+        for menu in self.scrib_commands.context_menus():
+            self.tree.add_command(menu)
         self._refresh_invite_url()
         if self.invite_url:
             log.info(

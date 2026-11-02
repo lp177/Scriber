@@ -26,7 +26,7 @@ transcripts and summaries, and change settings — all from one container.
 
 ## Features
 
-- 🔴 One-command recording: `/scriber start`, `/scriber stop`, `/scriber cancel`
+- 🔴 One-command recording: `/scriber start`, `/scriber stop`, `/scriber cancel` (also in the right-click → Apps menu)
 - 🗣️ Per-speaker transcription with timestamps — **locally** (faster-whisper, the default) or via a cloud STT engine (Mistral **Voxtral**, **ElevenLabs Scribe**, **Google Chirp**) with automatic fallback to local Whisper
 - 🤖 Meeting minutes via Anthropic, OpenAI, or a self-hosted model (Ollama, vLLM, LM Studio, LocalAI)
 - 📢 Automatic **recording notice** posted in the voice channel's chat so everyone knows recording started, what happens with the audio, and how to opt out (leave the channel)
@@ -408,6 +408,14 @@ unreachable — see [Troubleshooting](#troubleshooting).
 | `/scriber start lang:<code>` | Same, but transcribe this meeting in a specific language (see below), overriding the configured default. |
 | `/scriber stop` | Stop recording, finish the transcription, generate the summary and post it in the recorded voice channel's chat. Only members who can send messages in that chat may run it. |
 | `/scriber cancel` | Stop recording and discard everything — no transcript is kept, nothing is sent to any AI provider. Same restriction as `stop`. |
+
+The same three actions are also in Discord's right-click menu: right-click a
+member in the member list (the bot, or anyone else — Discord shows app entries
+on every member) → **Apps** → **Scriber: start recording**, **Scriber: stop &
+summarize** or **Scriber: cancel recording**. They behave like the slash
+commands; `start` there uses the configured language (no `lang` option), and
+`cancel` asks for a confirmation first. Server admins can hide them from some
+roles or channels in *Server Settings → Integrations → Scriber*.
 
 ### Transcription language
 
