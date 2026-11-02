@@ -128,7 +128,7 @@
             <div class="n">3</div>
             <div class="b">
               <h3>Privileged Gateway Intents — leave them off</h3>
-              <p>Under <strong>Privileged Gateway Intents</strong>, leave <strong>Server Members Intent</strong> and <strong>Message Content Intent</strong> <em>OFF</em>. Scriber needs neither. Voice recording uses the standard (non-privileged) <em>Voice States</em> intent, which is enabled in Scriber's own code — there's no portal toggle for it. Leaving the privileged intents off also avoids Discord's 100-server verification requirements entirely.</p>
+              <p>Under <strong>Privileged Gateway Intents</strong>, turn <strong>Message Content Intent</strong> <em>ON</em> if you want the dashboard to show the meeting channel's chat next to the live transcript. It is optional: without it Scriber still records, transcribes and posts summaries, but chat messages show up in the dashboard without their text. Leave <strong>Server Members Intent</strong> <em>OFF</em>. Voice recording uses the standard (non-privileged) <em>Voice States</em> intent, which is enabled in Scriber's own code — there's no portal toggle for it. A bot in fewer than 100 servers can turn privileged intents on without Discord's verification.</p>
             </div>
           </div>
 

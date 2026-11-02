@@ -20,6 +20,7 @@ import {
   transcriptUrl,
   transcriptVersionUrl,
 } from "../api.js";
+import MeetingDiscussion from "../components/MeetingDiscussion.vue";
 import { formatCost, formatDate, formatDuration, formatNumber } from "../format.js";
 import { renderMarkdown } from "../util/markdown.js";
 
@@ -51,9 +52,12 @@ function showToast(message, kind) {
   }, 3200);
 }
 
-/** Load the meeting row and, when present, its transcript and summary text. */
-async function load() {
-  loading.value = true;
+/** Load the meeting row and, when present, its transcript and summary text.
+ *  A quiet load refreshes the page in place (no "Loading…" swap). */
+async function load({ quiet = false } = {}) {
+  if (!quiet) {
+    loading.value = true;
+  }
   error.value = "";
   try {
     const data = await getMeeting(meetingId);
@@ -69,6 +73,22 @@ async function load() {
   refreshVersions();
   if (summaryJobRunning.value) {
     scheduleSummaryPoll();
+  }
+}
+
+// ---- Live recording: elapsed time, then follow the meeting until it is summarized ----
+const liveElapsed = ref(null);
+let finishTimer = null;
+
+/** The recording ended: refresh now, then until the summary is done. */
+async function onRecordingEnded() {
+  if (disposed) {
+    return;
+  }
+  liveElapsed.value = null;
+  await load({ quiet: true });
+  if (!disposed && meeting.value && ["recording", "summarizing"].includes(meeting.value.status)) {
+    finishTimer = window.setTimeout(onRecordingEnded, 3000);
   }
 }
 
@@ -496,6 +516,9 @@ onUnmounted(() => {
   if (summaryPollTimer !== null) {
     window.clearTimeout(summaryPollTimer);
   }
+  if (finishTimer !== null) {
+    window.clearTimeout(finishTimer);
+  }
   if (audioObjectUrl.value) {
     URL.revokeObjectURL(audioObjectUrl.value);
   }
@@ -554,7 +577,15 @@ onUnmounted(() => {
           </div>
           <div>
             <dt>Duration</dt>
-            <dd>{{ formatDuration(meeting.duration_seconds) }}</dd>
+            <dd>
+              {{
+                formatDuration(
+                  meeting.status === "recording" && liveElapsed !== null
+                    ? liveElapsed
+                    : meeting.duration_seconds,
+                )
+              }}
+            </dd>
           </div>
           <div>
             <dt>Words</dt>
@@ -578,6 +609,14 @@ onUnmounted(() => {
           </div>
         </dl>
       </section>
+
+      <MeetingDiscussion
+        :meeting-id="meetingId"
+        :recording="meeting.status === 'recording'"
+        :started-at="meeting.started_at || ''"
+        @elapsed="liveElapsed = $event"
+        @ended="onRecordingEnded"
+      />
 
       <section v-if="usageRows.length" class="panel">
         <div class="panel-head">
@@ -647,7 +686,7 @@ onUnmounted(() => {
         <audio v-else class="audio-player" controls autoplay :src="audioObjectUrl"></audio>
       </section>
 
-      <section class="panel">
+      <section v-if="meeting.status !== 'recording'" class="panel">
         <div class="panel-head">
           <h2>Transcript</h2>
           <button

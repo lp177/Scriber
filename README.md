@@ -79,8 +79,11 @@ an empty summary.
    **New Application**. Give it a name, e.g. `Scriber`.
 2. Open the **Bot** tab. Click **Reset Token**, copy the token, and put it in
    your `.env` as `DISCORD_TOKEN`. Keep it secret.
-3. Privileged gateway intents: Scriber needs **neither** the *Server Members
-   Intent* **nor** the *Message Content Intent* — you can leave them disabled.
+3. Privileged gateway intents: enable the **Message Content Intent** if you
+   want the dashboard to show the meeting channel's chat next to the live
+   transcript. It is optional: without it Scriber still records and posts, but
+   chat messages show up without their text. The *Server Members Intent* is not
+   needed.
 4. Copy your **Application ID** from the *General Information* tab and invite
    the bot with this URL (replace `YOUR_APPLICATION_ID`):
 

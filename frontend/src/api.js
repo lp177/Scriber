@@ -104,6 +104,29 @@ export async function deleteMeeting(id) {
   return (await request(`/api/meetings/${encodeURIComponent(id)}`, { method: "DELETE" })).json();
 }
 
+/**
+ * GET /api/meetings/{id}/live — speech + channel chat since the given cursors:
+ * {status, live, elapsed_seconds, speech, speech_next, chat, chat_rev, can_send,
+ * chat_content, channel_name}.
+ */
+export async function getMeetingLive(id, speechAfter = 0, chatAfter = 0) {
+  const params = new URLSearchParams({
+    speech_after: String(speechAfter),
+    chat_after: String(chatAfter),
+  });
+  return (await request(`/api/meetings/${encodeURIComponent(id)}/live?${params}`)).json();
+}
+
+/** POST /api/meetings/{id}/chat — post in the meeting channel via the bot; {ok, message}. */
+export async function sendMeetingChat(id, content, author) {
+  return (
+    await request(`/api/meetings/${encodeURIComponent(id)}/chat`, {
+      method: "POST",
+      body: JSON.stringify({ content, author }),
+    })
+  ).json();
+}
+
 /** GET /api/settings — returns {fields}. */
 export async function getSettings() {
   return (await request("/api/settings")).json();

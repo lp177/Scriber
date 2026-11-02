@@ -7,10 +7,12 @@ are synchronous and fast, so they may be called directly from async code.
 
 from __future__ import annotations
 
+import json
 import pathlib
 import sqlite3
 import threading
 from datetime import datetime, timedelta, timezone
+from typing import Any
 
 _conn: sqlite3.Connection | None = None
 _lock = threading.Lock()
@@ -143,6 +145,32 @@ CREATE TABLE IF NOT EXISTS api_usage (
 """
 _USAGE_INDEX = "CREATE INDEX IF NOT EXISTS idx_api_usage_meeting ON api_usage(meeting_id)"
 
+# Text-chat messages of the meeting's Discord channel, captured while it is
+# recorded, plus the messages sent from the dashboard through the bot
+# (``via_web = 1``). ``rev`` is a per-meeting change counter bumped on every
+# insert, edit and deletion, so the dashboard polls with "everything after
+# rev N" and receives new, edited and deleted messages in one go.
+_CHAT_SCHEMA = """
+CREATE TABLE IF NOT EXISTS meeting_chat (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    meeting_id TEXT NOT NULL,
+    message_id TEXT,
+    author_id TEXT,
+    author_name TEXT NOT NULL,
+    content TEXT NOT NULL DEFAULT '',
+    attachments TEXT NOT NULL DEFAULT '[]',
+    via_web INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    edited_at TEXT,
+    deleted INTEGER NOT NULL DEFAULT 0,
+    rev INTEGER NOT NULL
+)
+"""
+_CHAT_INDEX = "CREATE INDEX IF NOT EXISTS idx_meeting_chat_meeting ON meeting_chat(meeting_id, rev)"
+_CHAT_MESSAGE_INDEX = (
+    "CREATE INDEX IF NOT EXISTS idx_meeting_chat_message ON meeting_chat(message_id)"
+)
+
 # Meeting rows are read with their aggregated provider usage so lists and the
 # detail view can show an estimated cost: ``usage_calls`` (number of recorded
 # calls), ``cost_usd`` (SUM of the priced ones, NULL when none is priced) and
@@ -189,6 +217,9 @@ def init(db_path: pathlib.Path) -> None:
         _conn.execute(_API_TOKENS_SCHEMA)
         _conn.execute(_USAGE_SCHEMA)
         _conn.execute(_USAGE_INDEX)
+        _conn.execute(_CHAT_SCHEMA)
+        _conn.execute(_CHAT_INDEX)
+        _conn.execute(_CHAT_MESSAGE_INDEX)
         _migrate(_conn)
         _conn.commit()
 
@@ -296,6 +327,7 @@ def delete_meeting(meeting_id: str) -> None:
             "DELETE FROM meeting_transcripts WHERE meeting_id = ?", (meeting_id,)
         )
         conn.execute("DELETE FROM api_usage WHERE meeting_id = ?", (meeting_id,))
+        conn.execute("DELETE FROM meeting_chat WHERE meeting_id = ?", (meeting_id,))
         conn.execute("DELETE FROM meetings WHERE id = ?", (meeting_id,))
         conn.commit()
 
@@ -348,6 +380,112 @@ def list_usage(meeting_id: str) -> list[dict]:
             "SELECT * FROM api_usage WHERE meeting_id = ? ORDER BY id ASC", (meeting_id,)
         ).fetchall()
     return [dict(row) for row in rows]
+
+
+def _next_chat_rev(conn: sqlite3.Connection, meeting_id: str) -> int:
+    """Next change counter of a meeting's chat (caller holds the lock)."""
+    row = conn.execute(
+        "SELECT COALESCE(MAX(rev), 0) AS rev FROM meeting_chat WHERE meeting_id = ?",
+        (meeting_id,),
+    ).fetchone()
+    return int(row["rev"]) + 1
+
+
+def _chat_row(row: sqlite3.Row) -> dict:
+    """Decode a ``meeting_chat`` row for the API."""
+    data = dict(row)
+    try:
+        data["attachments"] = json.loads(data.get("attachments") or "[]")
+    except ValueError:
+        data["attachments"] = []
+    data["via_web"] = bool(data.get("via_web"))
+    data["deleted"] = bool(data.get("deleted"))
+    return data
+
+
+def add_chat_message(
+    meeting_id: str,
+    *,
+    author_name: str,
+    content: str,
+    created_at: str,
+    message_id: str | None = None,
+    author_id: str | None = None,
+    attachments: list[dict] | None = None,
+    via_web: bool = False,
+) -> dict:
+    """Store one chat message of a meeting; returns the stored row."""
+    with _lock:
+        conn = _require_conn()
+        cursor = conn.execute(
+            """
+            INSERT INTO meeting_chat (
+                meeting_id, message_id, author_id, author_name, content, attachments,
+                via_web, created_at, rev
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                meeting_id,
+                message_id,
+                author_id,
+                author_name,
+                content,
+                json.dumps(attachments or []),
+                1 if via_web else 0,
+                created_at,
+                _next_chat_rev(conn, meeting_id),
+            ),
+        )
+        conn.commit()
+        row = conn.execute(
+            "SELECT * FROM meeting_chat WHERE id = ?", (cursor.lastrowid,)
+        ).fetchone()
+    return _chat_row(row)
+
+
+def update_chat_message(
+    message_id: str,
+    *,
+    content: str | None = None,
+    attachments: list[dict] | None = None,
+    edited_at: str | None = None,
+    deleted: bool = False,
+) -> bool:
+    """Apply a Discord edit or deletion to a stored chat message; False if unknown."""
+    with _lock:
+        conn = _require_conn()
+        row = conn.execute(
+            "SELECT id, meeting_id FROM meeting_chat WHERE message_id = ?", (message_id,)
+        ).fetchone()
+        if row is None:
+            return False
+        fields: dict[str, Any] = {"rev": _next_chat_rev(conn, row["meeting_id"])}
+        if deleted:
+            fields["deleted"] = 1
+        if content is not None:
+            fields["content"] = content
+        if attachments is not None:
+            fields["attachments"] = json.dumps(attachments)
+        if edited_at is not None:
+            fields["edited_at"] = edited_at
+        assignments = ", ".join(f"{column} = ?" for column in fields)
+        conn.execute(
+            f"UPDATE meeting_chat SET {assignments} WHERE id = ?",
+            (*fields.values(), row["id"]),
+        )
+        conn.commit()
+    return True
+
+
+def list_chat(meeting_id: str, after_rev: int = 0) -> list[dict]:
+    """Chat messages of a meeting changed after ``after_rev``, in change order."""
+    with _lock:
+        conn = _require_conn()
+        rows = conn.execute(
+            "SELECT * FROM meeting_chat WHERE meeting_id = ? AND rev > ? ORDER BY rev ASC",
+            (meeting_id, after_rev),
+        ).fetchall()
+    return [_chat_row(row) for row in rows]
 
 
 def list_meeting_ids_by_status(status: str) -> list[str]:

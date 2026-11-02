@@ -9,6 +9,7 @@ import discord
 from discord.ext import commands
 
 from scriber import config
+from scriber.bot import chat
 from scriber.bot.commands import ScribCommands
 
 if TYPE_CHECKING:
@@ -103,7 +104,10 @@ class ScribBot(commands.Bot):
         self, transcriber: "LiveTranscriber", summarizer: "Summarizer", memory: "MemoryManager"
     ) -> None:
         intents = discord.Intents.default()
-        intents.voice_states = True  # required for voice capture; message_content is not needed
+        intents.voice_states = True  # required for voice capture
+        # Privileged: lets the dashboard show the meeting channel's chat. When the
+        # application does not have it enabled, start() reconnects without it.
+        intents.message_content = True
         super().__init__(
             command_prefix=commands.when_mentioned,
             intents=intents,
@@ -124,6 +128,52 @@ class ScribBot(commands.Bot):
         #: Named ``scrib_commands`` because ``commands.Bot.commands`` is a
         #: read-only property (the prefix-command registry).
         self.scrib_commands: ScribCommands | None = None
+        #: False when Discord refused the Message Content intent: captured chat
+        #: messages then arrive without their text (the dashboard says why).
+        self.chat_content_available: bool = True
+        self.add_listener(self._chat_message, "on_message")
+        self.add_listener(self._chat_edit, "on_raw_message_edit")
+        self.add_listener(self._chat_delete, "on_raw_message_delete")
+
+    async def start(self, token: str, *, reconnect: bool = True) -> None:
+        """Log in and connect, dropping the Message Content intent if it is refused.
+
+        Discord closes the gateway with code 4014 when the bot asks for a
+        privileged intent its application does not have enabled. Recording does
+        not need message text, so instead of failing we reconnect without it
+        and only the dashboard's chat view loses the message text.
+        """
+        await self.login(token)
+        try:
+            await self.connect(reconnect=reconnect)
+        except discord.PrivilegedIntentsRequired:
+            if not self.intents.message_content:
+                raise
+            log.warning(
+                "Discord refused the Message Content intent; connecting without it. "
+                "The dashboard's meeting chat will show messages without their text "
+                "until the intent is enabled in the Discord Developer Portal "
+                "(Bot → Privileged Gateway Intents) and Scriber is restarted."
+            )
+            self.chat_content_available = False
+            self._connection._intents.message_content = False
+            await self.connect(reconnect=reconnect)
+
+    def session_for_meeting(self, meeting_id: str) -> "MeetingSession | None":
+        """The active recording session of *meeting_id*, if it is still recording."""
+        for session in self.active_sessions.values():
+            if session.meeting_id == meeting_id:
+                return session
+        return None
+
+    async def _chat_message(self, message: discord.Message) -> None:
+        await chat.on_message(self, message)
+
+    async def _chat_edit(self, payload: discord.RawMessageUpdateEvent) -> None:
+        await chat.on_raw_message_edit(self, payload)
+
+    async def _chat_delete(self, payload: discord.RawMessageDeleteEvent) -> None:
+        await chat.on_raw_message_delete(self, payload)
 
     async def setup_hook(self) -> None:
         """Register the /scriber command group and sync the application command tree.

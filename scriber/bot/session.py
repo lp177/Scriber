@@ -8,7 +8,7 @@ import contextlib
 import logging
 import secrets
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -102,6 +102,31 @@ class MeetingSession:
     def seconds_since_activity(self) -> float:
         """Seconds since the last transcript entry (or session start if none yet)."""
         return time.monotonic() - self._last_activity_monotonic
+
+    @property
+    def elapsed_seconds(self) -> float:
+        """Seconds since the recording started."""
+        return time.monotonic() - self._start_monotonic
+
+    def live_speech(self, after: int = 0) -> list[dict[str, Any]]:
+        """Transcript entries recorded so far, from position *after* on.
+
+        Entries are appended as their transcription finishes, so a later entry
+        may have spoken earlier (``offset`` / ``at`` give the speech start);
+        positions never change while recording, which makes *after* a cursor.
+        """
+        return [
+            {
+                "seq": seq,
+                "offset": round(ts - self._start_monotonic, 1),
+                "at": (
+                    self.started_at + timedelta(seconds=ts - self._start_monotonic)
+                ).isoformat(timespec="seconds"),
+                "speaker": name,
+                "text": text,
+            }
+            for seq, (ts, name, text) in enumerate(self.entries[after:], start=after)
+        ]
 
     async def start(self) -> None:
         """Connect to the voice channel, start capturing audio and create the DB row."""

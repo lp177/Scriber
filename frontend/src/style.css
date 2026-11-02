@@ -1715,3 +1715,173 @@ tr.clickable {
     animation-duration: 0.01ms !important;
   }
 }
+
+/* ---------- Meeting discussion: live transcript + channel chat ---------- */
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.btn-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.filter-btn {
+  min-height: 34px;
+  padding: 4px 14px;
+}
+
+.filter-btn.active {
+  background: var(--surface-3);
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.filter-btn:focus-visible,
+.disc-files a:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.live-badge {
+  margin-left: 8px;
+  vertical-align: middle;
+}
+
+.discussion-feed {
+  list-style: none;
+  margin: 0;
+  padding: 4px 0;
+  max-height: 62vh;
+  min-height: 160px;
+  overflow-y: auto;
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+}
+
+.disc-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 6px 12px;
+  border-left: 3px solid transparent;
+}
+
+.disc-item:hover {
+  background: var(--surface);
+}
+
+.disc-item.chat {
+  border-left-color: var(--amber);
+}
+
+.disc-item.web {
+  border-left-color: var(--primary);
+}
+
+.disc-time {
+  flex: 0 0 4.2em;
+  padding-top: 2px;
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+  text-align: right;
+}
+
+.disc-kind {
+  flex: 0 0 auto;
+  padding-top: 3px;
+  color: var(--text-muted);
+}
+
+.disc-item.chat .disc-kind {
+  color: var(--amber);
+}
+
+.disc-item.web .disc-kind {
+  color: var(--primary);
+}
+
+.disc-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.disc-author {
+  font-weight: 600;
+  margin-right: 6px;
+}
+
+.disc-tag {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--text-muted);
+  font-size: 0.75rem;
+}
+
+.disc-text {
+  margin: 2px 0 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.disc-files {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+}
+
+.disc-files a {
+  color: var(--primary);
+}
+
+.disc-empty {
+  padding: 24px 16px;
+  text-align: center;
+}
+
+.disc-composer {
+  margin-top: 12px;
+}
+
+.disc-composer-fields {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.disc-name {
+  flex: 0 1 180px;
+  min-width: 120px;
+}
+
+.disc-input {
+  flex: 1 1 320px;
+  min-height: 48px;
+  resize: vertical;
+}
+
+.disc-composer .field-hint {
+  margin-top: 6px;
+}
+
+.disc-composer .form-error {
+  margin-top: 8px;
+}

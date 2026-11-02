@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import hmac
 import logging
+import re
 import secrets
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -65,6 +67,14 @@ class RegenRequest(BaseModel):
     engine: str
     model: str | None = None
     language: str | None = None
+
+
+class ChatMessageCreate(BaseModel):
+    """A message to post in the meeting's Discord channel through the bot."""
+
+    content: str
+    #: Name shown in Discord before the message; defaults to the admin username.
+    author: str | None = None
 
 
 class SummaryRegenRequest(BaseModel):
@@ -293,6 +303,80 @@ def _serve_transcript_version(meeting_id: str, transcript_id: str, download: boo
     return PlainTextResponse(text, media_type="text/plain")
 
 
+#: One line of a transcript file: ``[HH:MM:SS] Speaker: text``.
+_TRANSCRIPT_LINE = re.compile(r"^\[(\d+):(\d\d):(\d\d)\] (.+?): (.*)$")
+
+
+def _parse_transcript(path: Path, started_at: str | None) -> list[dict[str, Any]]:
+    """Speech entries of a finished meeting's transcript file, timeline-shaped."""
+    try:
+        start = datetime.fromisoformat(started_at) if started_at else None
+    except ValueError:
+        start = None
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return []
+    entries: list[dict[str, Any]] = []
+    for line in lines:
+        match = _TRANSCRIPT_LINE.match(line)
+        if match is None:
+            continue
+        hours, minutes, seconds, speaker, text = match.groups()
+        offset = int(hours) * 3600 + int(minutes) * 60 + int(seconds)
+        entries.append(
+            {
+                "seq": len(entries),
+                "offset": float(offset),
+                "at": (start + timedelta(seconds=offset)).isoformat(timespec="seconds")
+                if start is not None
+                else None,
+                "speaker": speaker,
+                "text": text,
+            }
+        )
+    return entries
+
+
+def _meeting_live(
+    bot: Any, meeting_id: str, speech_after: int, chat_after: int
+) -> dict[str, Any]:
+    """Speech + chat of a meeting since the given cursors, for the discussion view.
+
+    While the meeting records, speech comes from the live session; afterwards
+    from the main transcript file. Chat rows carry a change counter (``rev``):
+    the client upserts them by id, which also delivers edits and deletions.
+    """
+    row = database.get_meeting(meeting_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Meeting not found")
+    session = bot.session_for_meeting(meeting_id) if bot is not None else None
+    speech_after = max(0, speech_after)
+    if session is not None:
+        speech = session.live_speech(speech_after)
+        speech_total = speech_after + len(speech)
+        elapsed: float | None = round(session.elapsed_seconds, 1)
+    else:
+        path = _resolve_data_file(row.get("transcript_path"))
+        full = _parse_transcript(path, row.get("started_at")) if path is not None else []
+        speech = full[speech_after:]
+        speech_total = len(full)
+        elapsed = None
+    chat = database.list_chat(meeting_id, max(0, chat_after))
+    return {
+        "status": row.get("status"),
+        "live": session is not None,
+        "elapsed_seconds": elapsed,
+        "speech": speech,
+        "speech_next": max(speech_total, speech_after),
+        "chat": chat,
+        "chat_rev": max([chat_after, *(message["rev"] for message in chat)]),
+        "can_send": session is not None and bool(bot.is_ready()),
+        "chat_content": bool(getattr(bot, "chat_content_available", True)),
+        "channel_name": row.get("channel_name") or "",
+    }
+
+
 def _memory_manager() -> MemoryManager:
     """Build a MemoryManager rooted at ``{data_dir}/memory``."""
     return MemoryManager(config.get().data_dir / "memory")
@@ -477,6 +561,47 @@ async def get_meeting(meeting_id: str, _user: str = Depends(require_auth)) -> di
     data = _with_usage(_with_file_flags(row))
     data["summary_job"] = summary_regen.get_job(meeting_id)
     return data
+
+
+@router.get("/meetings/{meeting_id}/live")
+async def get_meeting_live(
+    meeting_id: str,
+    request: Request,
+    speech_after: int = 0,
+    chat_after: int = 0,
+    _user: str = Depends(require_auth),
+) -> dict[str, Any]:
+    """Live transcript + channel chat since the given cursors (polled while recording)."""
+    return _meeting_live(request.app.state.bot, meeting_id, speech_after, chat_after)
+
+
+@router.post("/meetings/{meeting_id}/chat")
+async def post_meeting_chat(
+    meeting_id: str,
+    body: ChatMessageCreate,
+    request: Request,
+    user: str = Depends(require_auth),
+) -> dict[str, Any]:
+    """Post a message in the channel of a meeting being recorded, through the bot."""
+    from scriber.bot import chat as bot_chat
+
+    if database.get_meeting(meeting_id) is None:
+        raise HTTPException(status_code=404, detail="Meeting not found")
+    bot = request.app.state.bot
+    session = bot.session_for_meeting(meeting_id) if bot is not None else None
+    if session is None:
+        raise HTTPException(
+            status_code=409, detail="This meeting is not being recorded any more"
+        )
+    if not bot.is_ready():
+        raise HTTPException(status_code=503, detail="The Discord bot is not connected")
+    try:
+        message = await bot_chat.send_from_dashboard(
+            session, body.author if body.author is not None else user, body.content
+        )
+    except bot_chat.ChatError as exc:
+        raise HTTPException(status_code=exc.status, detail=str(exc)) from exc
+    return {"ok": True, "message": message}
 
 
 @router.get("/meetings/{meeting_id}/transcript")
