@@ -19,6 +19,7 @@ from scriber import config, database
 from scriber.audio import AudioArchive
 from scriber.transcription import live
 from scriber.bot.recorder import SegmentingSink
+from scriber.bot.speech import Speaker
 
 if TYPE_CHECKING:
     from scriber.summary.summarizer import Summarizer
@@ -97,6 +98,8 @@ class MeetingSession:
         #: out from when recording began.
         self._last_activity_monotonic: float = time.monotonic()
         self._closed: bool = False
+        #: Reads dashboard chat messages aloud in the voice channel.
+        self.speaker = Speaker(self)
 
     @property
     def seconds_since_activity(self) -> float:
@@ -256,7 +259,8 @@ class MeetingSession:
             pass
 
     async def _teardown_voice(self) -> None:
-        """Stop the flush task, stop listening and disconnect from voice."""
+        """Stop reading aloud, stop the flush task and stop listening."""
+        await self.speaker.close()
         if self._flush_task is not None:
             self._flush_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):

@@ -75,6 +75,8 @@ class ChatMessageCreate(BaseModel):
     content: str
     #: Name shown in Discord before the message; defaults to the admin username.
     author: str | None = None
+    #: Also read the message aloud in the voice channel (Voxtral TTS).
+    speak: bool = False
 
 
 class SummaryRegenRequest(BaseModel):
@@ -352,7 +354,11 @@ def _meeting_live(
         raise HTTPException(status_code=404, detail="Meeting not found")
     session = bot.session_for_meeting(meeting_id) if bot is not None else None
     speech_after = max(0, speech_after)
+    tts_unavailable: str | None = "The meeting is not being recorded."
     if session is not None:
+        from scriber.bot import speech as bot_speech
+
+        tts_unavailable = bot_speech.unavailable_reason(session)
         speech = session.live_speech(speech_after)
         speech_total = speech_after + len(speech)
         elapsed: float | None = round(session.elapsed_seconds, 1)
@@ -374,6 +380,8 @@ def _meeting_live(
         "can_send": session is not None and bool(bot.is_ready()),
         "chat_content": bool(getattr(bot, "chat_content_available", True)),
         "channel_name": row.get("channel_name") or "",
+        "tts_available": tts_unavailable is None,
+        "tts_unavailable": tts_unavailable,
     }
 
 
@@ -597,7 +605,10 @@ async def post_meeting_chat(
         raise HTTPException(status_code=503, detail="The Discord bot is not connected")
     try:
         message = await bot_chat.send_from_dashboard(
-            session, body.author if body.author is not None else user, body.content
+            session,
+            body.author if body.author is not None else user,
+            body.content,
+            speak=body.speak,
         )
     except bot_chat.ChatError as exc:
         raise HTTPException(status_code=exc.status, detail=str(exc)) from exc

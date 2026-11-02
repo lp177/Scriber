@@ -19,6 +19,7 @@ const emit = defineEmits(["ended", "elapsed"]);
 
 const POLL_MS = 2000;
 const NAME_KEY = "scriber_chat_name";
+const SPEAK_KEY = "scriber_chat_speak";
 const MAX_LENGTH = 1800;
 
 const speech = ref(new Map()); // seq -> entry
@@ -29,12 +30,16 @@ const live = ref(props.recording);
 const canSend = ref(false);
 const chatContent = ref(true);
 const channelName = ref("");
+const ttsAvailable = ref(false);
+const ttsUnavailable = ref("");
 const loaded = ref(false);
 const loadError = ref("");
 const filter = ref("all"); // all | speech | chat
 
 const author = ref(localStorage.getItem(NAME_KEY) || "");
 const draft = ref("");
+// Read dashboard messages aloud in the voice channel (on unless turned off).
+const speak = ref(localStorage.getItem(SPEAK_KEY) !== "false");
 const sending = ref(false);
 const sendError = ref("");
 
@@ -86,6 +91,7 @@ const items = computed(() => {
         author: message.author_name,
         text: message.content,
         edited: !!message.edited_at,
+        tts: message.tts || "",
         attachments: message.attachments || [],
       });
     }
@@ -167,6 +173,8 @@ async function refresh() {
     canSend.value = data.can_send;
     chatContent.value = data.chat_content;
     channelName.value = data.channel_name;
+    ttsAvailable.value = !!data.tts_available;
+    ttsUnavailable.value = data.tts_unavailable || "";
     loaded.value = true;
     if (data.live && data.elapsed_seconds !== null) {
       emit("elapsed", data.elapsed_seconds);
@@ -216,7 +224,12 @@ async function send() {
   const name = author.value.trim();
   localStorage.setItem(NAME_KEY, name);
   try {
-    const { message } = await sendMeetingChat(props.meetingId, content, name || undefined);
+    const { message } = await sendMeetingChat(
+      props.meetingId,
+      content,
+      name || undefined,
+      speak.value && ttsAvailable.value,
+    );
     const next = new Map(chat.value);
     next.set(message.id, message);
     chat.value = next;
@@ -229,6 +242,20 @@ async function send() {
     sending.value = false;
   }
 }
+
+function setSpeak(event) {
+  speak.value = event.target.checked;
+  localStorage.setItem(SPEAK_KEY, String(speak.value));
+}
+
+/** Label of a dashboard message's read-aloud state. */
+const TTS_LABELS = {
+  queued: "🔊 waiting to be read aloud",
+  speaking: "🔊 reading aloud…",
+  spoken: "🔊 read aloud",
+  failed: "🔇 could not be read aloud",
+  skipped: "🔇 not read aloud",
+};
 
 /** Enter sends, Shift+Enter inserts a new line (IME composition is left alone). */
 function onKeydown(event) {
@@ -305,6 +332,11 @@ onUnmounted(() => {
           <span class="disc-author">{{ item.author }}</span>
           <span v-if="item.kind === 'web'" class="disc-tag">via dashboard</span>
           <span v-if="item.edited" class="disc-tag">edited</span>
+          <span
+            v-if="item.tts && TTS_LABELS[item.tts]"
+            class="disc-tag"
+            :class="{ 'disc-tag-warn': item.tts === 'failed' }"
+          >{{ TTS_LABELS[item.tts] }}</span>
           <p v-if="item.text" class="disc-text">{{ item.text }}</p>
           <p v-else-if="!item.attachments?.length" class="disc-text muted">
             {{ chatContent ? "(empty message)" : "(text not available)" }}
@@ -350,10 +382,27 @@ onUnmounted(() => {
           {{ sending ? "Sending…" : "Send" }}
         </button>
       </div>
+      <div class="switch-row disc-speak">
+        <label class="switch">
+          <input
+            type="checkbox"
+            :checked="speak && ttsAvailable"
+            :disabled="!ttsAvailable"
+            @change="setSpeak"
+          />
+          <span class="switch-track" aria-hidden="true"></span>
+          <span class="switch-thumb" aria-hidden="true"></span>
+          <span class="switch-label">Read aloud in the voice channel</span>
+        </label>
+        <span v-if="!ttsAvailable && ttsUnavailable" class="field-hint">{{ ttsUnavailable }}</span>
+      </div>
       <p v-if="sendError" class="form-error" role="alert">{{ sendError }}</p>
       <p class="field-hint">
         Posted in the channel by the bot as “<strong>{{ author.trim() || "your username" }}</strong>
         (via dashboard): …”. Mentions do not ping anyone.
+        <template v-if="speak && ttsAvailable">
+          The bot also says it in the voice channel (Voxtral voice, prefixed with your name).
+        </template>
         <span v-if="!canSend">The bot is not connected right now.</span>
       </p>
     </form>

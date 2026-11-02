@@ -123,7 +123,9 @@ CREATE TABLE IF NOT EXISTS api_tokens (
 
 # One row per AI provider call made for a meeting: the summary itself
 # (``kind = 'summary'``) and each participant's memory refresh
-# (``kind = 'memory'``, ``label`` = the participant's display name). Token
+# (``kind = 'memory'``, ``label`` = the participant's display name), and each
+# dashboard message read aloud (``kind = 'tts'``, ``label`` = its author; no
+# tokens, the cost is estimated per character). Token
 # counts come from the provider's usage report; ``cost_usd`` is the list-price
 # estimate (NULL when the model is not in the price table). A meeting's cost
 # in the dashboard is the SUM over its rows.
@@ -163,7 +165,8 @@ CREATE TABLE IF NOT EXISTS meeting_chat (
     created_at TEXT NOT NULL,
     edited_at TEXT,
     deleted INTEGER NOT NULL DEFAULT 0,
-    rev INTEGER NOT NULL
+    rev INTEGER NOT NULL,
+    tts TEXT
 )
 """
 _CHAT_INDEX = "CREATE INDEX IF NOT EXISTS idx_meeting_chat_meeting ON meeting_chat(meeting_id, rev)"
@@ -238,6 +241,9 @@ def _migrate(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE meetings ADD COLUMN transcript_engine TEXT")
     if "transcript_label" not in meeting_cols:
         conn.execute("ALTER TABLE meetings ADD COLUMN transcript_label TEXT")
+    chat_cols = {row["name"] for row in conn.execute("PRAGMA table_info(meeting_chat)")}
+    if "tts" not in chat_cols:
+        conn.execute("ALTER TABLE meeting_chat ADD COLUMN tts TEXT")
 
 
 def close() -> None:
@@ -345,7 +351,7 @@ def record_usage(
     cost_usd: float | None = None,
     label: str | None = None,
 ) -> None:
-    """Record one AI provider call made for a meeting (``kind``: summary | memory)."""
+    """Record one AI provider call made for a meeting (``kind``: summary | memory | tts)."""
     with _lock:
         conn = _require_conn()
         conn.execute(
@@ -413,16 +419,21 @@ def add_chat_message(
     author_id: str | None = None,
     attachments: list[dict] | None = None,
     via_web: bool = False,
+    tts: str | None = None,
 ) -> dict:
-    """Store one chat message of a meeting; returns the stored row."""
+    """Store one chat message of a meeting; returns the stored row.
+
+    ``tts`` is the read-aloud state of a dashboard message (see
+    :func:`set_chat_tts`), ``None`` when it is not read aloud.
+    """
     with _lock:
         conn = _require_conn()
         cursor = conn.execute(
             """
             INSERT INTO meeting_chat (
                 meeting_id, message_id, author_id, author_name, content, attachments,
-                via_web, created_at, rev
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                via_web, created_at, rev, tts
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 meeting_id,
@@ -434,6 +445,7 @@ def add_chat_message(
                 1 if via_web else 0,
                 created_at,
                 _next_chat_rev(conn, meeting_id),
+                tts,
             ),
         )
         conn.commit()
@@ -475,6 +487,22 @@ def update_chat_message(
         )
         conn.commit()
     return True
+
+
+def set_chat_tts(row_id: int, state: str) -> None:
+    """Set the read-aloud state of a chat row (queued, speaking, spoken, failed, skipped)."""
+    with _lock:
+        conn = _require_conn()
+        row = conn.execute(
+            "SELECT meeting_id FROM meeting_chat WHERE id = ?", (row_id,)
+        ).fetchone()
+        if row is None:
+            return
+        conn.execute(
+            "UPDATE meeting_chat SET tts = ?, rev = ? WHERE id = ?",
+            (state, _next_chat_rev(conn, row["meeting_id"]), row_id),
+        )
+        conn.commit()
 
 
 def list_chat(meeting_id: str, after_rev: int = 0) -> list[dict]:

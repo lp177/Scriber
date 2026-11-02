@@ -46,6 +46,10 @@ FIXED_DEFAULTS: dict[str, str] = {
     "VOXTRAL_API_KEY": "",
     "VOXTRAL_MODEL": "voxtral-mini-latest",
     "VOXTRAL_BASE_URL": "https://api.mistral.ai",
+    # Reading dashboard chat messages aloud in the voice channel (Voxtral TTS,
+    # through the Voxtral key and base URL above).
+    "TTS_MODEL": "voxtral-mini-tts-3-0",
+    "TTS_VOICE": "voice_478",
     "ELEVENLABS_API_KEY": "",
     "ELEVENLABS_MODEL": "scribe_v2",
     "ELEVENLABS_BASE_URL": "https://api.elevenlabs.io",
@@ -90,6 +94,8 @@ FIXED_EDITABLE_KEYS: set[str] = {
     "VOXTRAL_API_KEY",
     "VOXTRAL_MODEL",
     "VOXTRAL_BASE_URL",
+    "TTS_MODEL",
+    "TTS_VOICE",
     "ELEVENLABS_API_KEY",
     "ELEVENLABS_MODEL",
     "ELEVENLABS_BASE_URL",
@@ -277,6 +283,10 @@ class Config:
     audio_keep: bool
     audio_retention_days: int
     stt_providers: dict[str, SttProviderConfig]
+    #: Voxtral TTS model and voice (preset slug/id or a saved voice id) used to
+    #: read dashboard chat messages aloud; the Voxtral provider gives the key.
+    tts_model: str
+    tts_voice: str
     admin_username: str
     admin_password: str
     web_host: str
@@ -427,6 +437,8 @@ class ConfigManager:
                     location=fixed["GOOGLE_SPEECH_LOCATION"].strip() or "eu",
                 ),
             },
+            tts_model=fixed["TTS_MODEL"].strip() or FIXED_DEFAULTS["TTS_MODEL"],
+            tts_voice=fixed["TTS_VOICE"].strip() or FIXED_DEFAULTS["TTS_VOICE"],
             admin_username=fixed["ADMIN_USERNAME"],
             admin_password=fixed["ADMIN_PASSWORD"],
             web_host=fixed["WEB_HOST"],
@@ -553,6 +565,8 @@ class ConfigManager:
             "VOXTRAL_API_KEY",
             "VOXTRAL_MODEL",
             "VOXTRAL_BASE_URL",
+            "TTS_MODEL",
+            "TTS_VOICE",
             "ELEVENLABS_API_KEY",
             "ELEVENLABS_MODEL",
             "ELEVENLABS_BASE_URL",

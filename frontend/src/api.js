@@ -118,11 +118,11 @@ export async function getMeetingLive(id, speechAfter = 0, chatAfter = 0) {
 }
 
 /** POST /api/meetings/{id}/chat — post in the meeting channel via the bot; {ok, message}. */
-export async function sendMeetingChat(id, content, author) {
+export async function sendMeetingChat(id, content, author, speak = false) {
   return (
     await request(`/api/meetings/${encodeURIComponent(id)}/chat`, {
       method: "POST",
-      body: JSON.stringify({ content, author }),
+      body: JSON.stringify({ content, author, speak }),
     })
   ).json();
 }

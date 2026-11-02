@@ -142,6 +142,9 @@ function usageLabel(row) {
   if (row.kind === "memory") {
     return row.label ? `Memory: ${row.label}` : "Memory refresh";
   }
+  if (row.kind === "tts") {
+    return row.label ? `Read aloud: ${row.label}` : "Read aloud";
+  }
   return row.kind === "summary" ? "Summary" : row.kind;
 }
 

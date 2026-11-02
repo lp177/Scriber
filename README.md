@@ -94,7 +94,8 @@ an empty summary.
 
    This uses the scopes `bot` and `applications.commands`, and the permissions
    integer `1084416` covering: **View Channels**, **Send Messages**,
-   **Attach Files**, **Connect**.
+   **Attach Files**, **Connect**. *Speak* is only used to read dashboard chat
+   messages aloud (optional); most servers already grant it to everyone.
 5. Optional but recommended for testing: enable *Developer Mode* in your
    Discord client, right-click your server, **Copy Server ID**, and set it as
    `DISCORD_GUILD_ID` in `.env`. Slash commands then appear instantly in that
@@ -243,6 +244,8 @@ dashboard, so a hijacked dashboard can neither silence nor redirect the alerts.
 | `VOXTRAL_API_KEY` | *(empty)* | yes | Mistral API key — unlocks the Voxtral regeneration engine |
 | `VOXTRAL_MODEL` | `voxtral-mini-latest` | yes | Voxtral model ID — `voxtral-mini-transcribe-3-0` / `voxtral-small-transcribe-3-0` (Voxtral 3) for better accuracy |
 | `VOXTRAL_BASE_URL` | `https://api.mistral.ai` | yes | Mistral API base URL |
+| `TTS_MODEL` | `voxtral-mini-tts-3-0` | yes | Voxtral TTS model reading dashboard chat messages aloud in the voice channel (uses the Voxtral key) |
+| `TTS_VOICE` | `voice_478` | yes | Voxtral voice: a preset id (e.g. `voice_592` French, `voice_478` US English) or a saved voice id |
 | `ELEVENLABS_API_KEY` | *(empty)* | yes | ElevenLabs API key — unlocks the Scribe regeneration engine |
 | `ELEVENLABS_MODEL` | `scribe_v2` | yes | ElevenLabs speech-to-text model ID |
 | `ELEVENLABS_BASE_URL` | `https://api.elevenlabs.io` | yes | ElevenLabs API base URL |

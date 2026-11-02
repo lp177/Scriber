@@ -93,6 +93,14 @@ const FIELD_INFO = {
     label: "Voxtral — base URL",
     hint: "Mistral API base URL (default https://api.mistral.ai).",
   },
+  TTS_MODEL: {
+    label: "Read aloud — Voxtral TTS model",
+    hint: "Model reading dashboard chat messages aloud in the voice channel (uses the Voxtral key above), e.g. voxtral-mini-tts-3-0.",
+  },
+  TTS_VOICE: {
+    label: "Read aloud — voice",
+    hint: "A Voxtral preset voice (pick one or type its id) or the id of a voice saved in your Mistral workspace.",
+  },
   ELEVENLABS_API_KEY: {
     label: "ElevenLabs Scribe — API key",
     hint: "ElevenLabs API key; enables the Scribe transcription engine.",
@@ -203,6 +211,23 @@ const audioKeepOn = computed(() => isTrue(form.value.AUDIO_KEEP));
 function setAudioKeep(event) {
   form.value.AUDIO_KEEP = event.target.checked ? "true" : "false";
 }
+
+/** Voxtral preset voices suggested for TTS_VOICE (any other voice id works too). */
+const TTS_VOICES = [
+  { id: "voice_478", label: "Sheila — English (US)" },
+  { id: "voice_485", label: "Rob — English (US)" },
+  { id: "voice_1787", label: "Mary — English (UK)" },
+  { id: "voice_1788", label: "David — English (UK)" },
+  { id: "voice_592", label: "Marie — French" },
+  { id: "voice_589", label: "Lea — French" },
+  { id: "voice_3137", label: "Manon — French" },
+  { id: "voice_3141", label: "Camille — French" },
+  { id: "voice_481", label: "Heidi — German" },
+  { id: "voice_483", label: "Elena — Spanish" },
+  { id: "voice_482", label: "Lorenzo — Italian" },
+  { id: "voice_480", label: "Gabriela — Portuguese" },
+  { id: "voice_3145", label: "Lotte — Dutch" },
+];
 
 /** Options offered by the live transcription-engine select. */
 const ENGINE_OPTIONS = [
@@ -563,7 +588,13 @@ onUnmounted(() => {
                 field.secret ? (field.value ? 'unchanged — ********' : 'not set') : placeholderFor(field.key)
               "
               :autocomplete="field.secret ? 'new-password' : 'off'"
+              :list="field.key === 'TTS_VOICE' ? 'tts-voices' : undefined"
             />
+            <datalist v-if="field.key === 'TTS_VOICE'" id="tts-voices">
+              <option v-for="voice in TTS_VOICES" :key="voice.id" :value="voice.id">
+                {{ voice.label }}
+              </option>
+            </datalist>
             <span
               v-if="!field.editable"
               class="lock-hint"

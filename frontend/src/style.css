@@ -1832,6 +1832,11 @@ tr.clickable {
   font-size: 0.75rem;
 }
 
+.disc-tag-warn {
+  background: var(--amber-bg);
+  color: var(--amber);
+}
+
 .disc-text {
   margin: 2px 0 0;
   white-space: pre-wrap;
@@ -1880,6 +1885,16 @@ tr.clickable {
 
 .disc-composer .field-hint {
   margin-top: 6px;
+}
+
+.disc-speak {
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin-top: 6px;
+}
+
+.disc-speak .field-hint {
+  margin: 0;
 }
 
 .disc-composer .form-error {

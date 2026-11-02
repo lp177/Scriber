@@ -25,6 +25,7 @@ from typing import TYPE_CHECKING, Any
 import discord
 
 from scriber import database
+from scriber.bot import speech
 
 if TYPE_CHECKING:
     from scriber.bot.client import ScribBot
@@ -126,13 +127,15 @@ async def on_raw_message_delete(bot: "ScribBot", payload: discord.RawMessageDele
 
 
 async def send_from_dashboard(
-    session: "MeetingSession", author: str, content: str
+    session: "MeetingSession", author: str, content: str, *, speak: bool = False
 ) -> dict[str, Any]:
     """Post a dashboard message into the meeting channel and store it.
 
     The message is prefixed with the author's name so the channel knows who
     wrote it, and sent with every mention disabled: the dashboard must not be
-    a way to ping ``@everyone`` or a role. Raises :class:`ChatError`.
+    a way to ping ``@everyone`` or a role. With ``speak``, the bot also reads
+    it aloud in the voice channel (see :mod:`scriber.bot.speech`); whether it
+    can is checked before anything is posted. Raises :class:`ChatError`.
     """
     author = " ".join(author.split())[:MAX_AUTHOR_LENGTH] or "Dashboard"
     content = content.strip()
@@ -143,6 +146,11 @@ async def send_from_dashboard(
     channel = session.text_channel
     if channel is None:
         raise ChatError("The meeting channel is not available.", status=409)
+    if speak:
+        try:
+            session.speaker.check()
+        except speech.SpeechError as exc:
+            raise ChatError(f"Cannot read the message aloud: {exc}", status=409) from exc
     text = f"**{discord.utils.escape_markdown(author)}** (via dashboard): {content}"
     try:
         sent = await channel.send(text, allowed_mentions=discord.AllowedMentions.none())
@@ -154,11 +162,15 @@ async def send_from_dashboard(
         ) from exc
     except discord.HTTPException as exc:
         raise ChatError(f"Discord rejected the message: {exc}", status=502) from exc
-    return database.add_chat_message(
+    row = database.add_chat_message(
         session.meeting_id,
         message_id=str(sent.id),
         author_name=author,
         content=content,
         created_at=_iso(sent.created_at),
         via_web=True,
+        tts="queued" if speak else None,
     )
+    if speak:
+        session.speaker.say(row["id"], author, content)
+    return row
