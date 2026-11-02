@@ -8,6 +8,11 @@
 # — it runs received audio through discord.py's davey MLS session so voice_recv
 # gets plain Opus.
 discord.py[voice]>=2.7,<3
+# davey 0.2 moved DAVE key changes behind prepare_transition/execute_transition,
+# which discord.py 2.7.1 never calls: the MLS session then never decrypts nor
+# encrypts, so recordings come out silent and the bot's own voice is inaudible.
+# Keep 0.1.x until discord.py signals transitions to the session.
+davey>=0.1.7,<0.2
 # discord-ext-voice-recv only publishes pre-releases; pin the latest known-good
 # alpha (naming a pre-release version makes pip accept it without --pre).
 discord-ext-voice-recv==0.5.2a179
